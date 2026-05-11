@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import { useAccount, useChainId, useConnect, useDisconnect } from 'wagmi';
 import { appConfig } from '@/lib/config';
@@ -28,6 +28,8 @@ export function WalletConnectAction({ label = 'connect wallet', className, tone 
   const { connect, connectors, error, isPending, variables } = useConnect();
   const [open, setOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [detected, setDetected] = useState<DetectedProvider[]>([]);
   const [hasCatshitFallback, setHasCatshitFallback] = useState(false);
 
@@ -85,6 +87,27 @@ export function WalletConnectAction({ label = 'connect wallet', className, tone 
     return Array.from(deduped.values()).sort((a, b) => rank(a) - rank(b));
   }, [connectors]);
 
+  useEffect(() => {
+    if (!showMenu) return;
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      setShowMenu(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowMenu(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showMenu]);
+
   const toneClass = tone === 'dark'
     ? 'bg-ink-2 text-fog border-mint shadow-[4px_4px_0_#00f5d4]'
     : tone === 'light'
@@ -94,6 +117,7 @@ export function WalletConnectAction({ label = 'connect wallet', className, tone 
   return (
     <div className="relative inline-flex">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => isConnected ? setShowMenu((value) => !value) : setOpen(true)}
         className={clsx('brutal-hover inline-flex items-center justify-center gap-2 rounded-2xl border-[3px] px-4 py-3 text-sm font-black uppercase tracking-wide', toneClass, className)}
@@ -102,10 +126,15 @@ export function WalletConnectAction({ label = 'connect wallet', className, tone 
       </button>
 
       {showMenu && isConnected ? (
-        <div className="absolute z-[110] mt-2 w-[280px] max-w-[calc(100vw-2rem)] rounded-[24px] border-[3px] border-mint bg-ink-2 p-4 text-fog shadow-[8px_8px_0_#00f5d4]">
-          <div className="mono-ui text-[11px] font-bold uppercase tracking-[0.24em] text-mint">wallet connected</div>
-          <div className="mt-2 break-all text-sm font-bold">{address}</div>
-          <div className="mt-2 text-xs text-fog/70">{appConfig.networkName} · current chain {activeChainId ?? '—'}</div>
+        <div ref={menuRef} className="absolute right-0 z-[110] mt-2 w-[min(22rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] rounded-[24px] border-[3px] border-mint bg-ink-2 p-4 text-fog shadow-[8px_8px_0_#00f5d4]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="mono-ui text-[11px] font-bold uppercase tracking-[0.24em] text-mint">wallet connected</div>
+              <div className="mt-2 break-all text-sm font-bold">{address}</div>
+              <div className="mt-2 text-xs text-fog/70">{appConfig.networkName} · current chain {activeChainId ?? '—'}</div>
+            </div>
+            <button type="button" className="rounded-xl border-[2px] border-fog/25 px-2 py-1 text-xs uppercase" onClick={() => setShowMenu(false)}>close</button>
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button type="button" className="rounded-2xl border-[3px] border-fog/30 bg-panel px-4 py-3 text-sm font-black uppercase tracking-wide text-fog" onClick={() => { navigator.clipboard?.writeText(address || ''); setShowMenu(false); }}>
               copy address
