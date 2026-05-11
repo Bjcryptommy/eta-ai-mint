@@ -81,11 +81,14 @@ export default function OauthAuthorizeClient() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [approved, setApproved] = useState(false);
   const [delegationKnown, setDelegationKnown] = useState(false);
+  const [approveStarted, setApproveStarted] = useState(false);
+  const [showReturnFallback, setShowReturnFallback] = useState(false);
+  const [delegationError, setDelegationError] = useState('');
 
   const connectedWallet = address || session?.session?.wallet_address || '';
   const backendSigned = ['signed', 'delegated'].includes(session?.session?.status || '');
   const backendDelegated = Boolean(session?.wallet_status?.delegated);
-  const delegationStatus = !delegationKnown && !session?.wallet_status ? 'Unknown' : backendDelegated ? 'Active' : session?.wallet_status ? 'Not active' : 'Unknown';
+  const delegationStatus = busy === 'refresh' && !session?.wallet_status ? 'Checking' : !delegationKnown && !session?.wallet_status ? 'Unknown' : backendDelegated ? 'Active' : session?.wallet_status ? 'Not active' : 'Unknown';
   const canApprove = Boolean(backendSigned && grantId && sessionId && redirectUri);
   const approveUrl = canApprove
     ? `${mcpOrigin}/oauth/approve?grant=${encodeURIComponent(grantId)}&session=${encodeURIComponent(sessionId)}${stateParam ? `&state=${encodeURIComponent(stateParam)}` : ''}${redirectUri ? `&redirect_uri=${encodeURIComponent(redirectUri)}` : ''}`
@@ -99,6 +102,7 @@ export default function OauthAuthorizeClient() {
     if (!res.ok) throw new Error(data?.message || 'Failed to load authorization session.');
     setSession(data);
     setDelegationKnown(Boolean(data?.wallet_status));
+    setDelegationError('');
     setBusy(null);
     return data;
   }
@@ -149,6 +153,7 @@ export default function OauthAuthorizeClient() {
       if (!provider) throw new Error('Connect CATSHIT Wallet first.');
       setBusy(action);
       setError('');
+      setDelegationError('');
       setInfo(action === 'delegate' ? 'Activating delegation…' : 'Revoking delegation…');
       if (action === 'delegate') {
         await activateDelegation(provider, connectedWallet as `0x${string}`, appConfig.delegateAddress as `0x${string}`);
@@ -158,22 +163,32 @@ export default function OauthAuthorizeClient() {
       await loadSession();
       setInfo(action === 'delegate' ? 'Delegation activated.' : 'Delegation revoked.');
     } catch (err: any) {
-      setError(err?.message || `${action} failed.`);
+      const message = err?.message || `${action} failed.`;
+      setError(message);
+      setDelegationError('Could not verify delegation');
     } finally {
       setBusy(null);
     }
   }
+
+  useEffect(() => {
+    if (!approveStarted) return;
+    const timer = window.setTimeout(() => setShowReturnFallback(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [approveStarted]);
 
   async function approveClaude() {
     try {
       if (!approveUrl) throw new Error('Sign with your wallet first.');
       setBusy('approve');
       setError('');
-      setInfo('This completes authorization and returns you to Claude.');
+      setInfo('Approved. Returning to Claude…');
+      setApproveStarted(true);
       setApproved(true);
       window.location.href = approveUrl;
     } catch (err: any) {
       setApproved(false);
+      setApproveStarted(false);
       setBusy(null);
       setError(err?.message || 'Approval failed.');
     }
@@ -195,6 +210,7 @@ export default function OauthAuthorizeClient() {
       await loadSession();
       setInfo('Authorization cancelled.');
       setApproved(false);
+      setApproveStarted(false);
     } catch (err: any) {
       setError(err?.message || 'Disconnect failed.');
     } finally {
@@ -240,15 +256,18 @@ export default function OauthAuthorizeClient() {
                 <WalletConnectAction tone="mint" label="Connect CATSHIT Wallet" className="max-w-full" />
                 {connectedWallet ? <BrutalButton tone="light" onClick={disconnectWalletAndSession} disabled={busy !== null}>Disconnect Wallet</BrutalButton> : null}
               </div>
-              <div className="mt-3 text-sm">{connectedWallet ? `Wallet connected · ${short(connectedWallet)}` : 'Connect CATSHIT Wallet to continue.'}</div>
+              {!connectedWallet ? <div className="mt-3 text-sm">Connect your wallet to begin.</div> : null}
             </InfoBox>
 
             <InfoBox title="step 2 · link wallet" tone="light">
               <div className="flex flex-wrap items-center gap-3">
-                <BrutalButton tone={backendSigned ? 'mint' : 'gold'} onClick={signIn} disabled={!connectedWallet || busy !== null || backendSigned}>
-                  {backendSigned ? 'Wallet Linked' : busy === 'sign' ? 'Signing…' : 'Sign to Link Wallet'}
-                </BrutalButton>
-                {backendSigned ? <TagBadge tone="mint">Wallet Linked</TagBadge> : null}
+                {backendSigned ? (
+                  <TagBadge tone="mint">Wallet Linked</TagBadge>
+                ) : (
+                  <BrutalButton tone="gold" onClick={signIn} disabled={!connectedWallet || busy !== null || backendSigned}>
+                    {busy === 'sign' ? 'Signing…' : 'Sign to Link Wallet'}
+                  </BrutalButton>
+                )}
               </div>
               <div className="mt-3 text-sm">{backendSigned ? 'This wallet is linked to this Claude session.' : 'This proves wallet ownership. It does not expose your private key.'}</div>
             </InfoBox>
@@ -256,29 +275,35 @@ export default function OauthAuthorizeClient() {
             <InfoBox title="step 3 · delegation" tone="light">
               <div className="flex flex-wrap items-center gap-3">
                 <TagBadge tone={delegationStatus === 'Active' ? 'mint' : delegationStatus === 'Not active' ? 'gold' : 'light'}>
-                  {delegationStatus === 'Active' ? 'Delegation Active' : delegationStatus === 'Not active' ? 'Delegation Not Active' : 'Checking delegation…'}
+                  {delegationStatus === 'Active' ? 'Delegation Active' : delegationStatus === 'Not active' ? 'Delegation Not Active' : delegationStatus === 'Checking' ? 'Checking delegation…' : 'Delegation Unknown'}
                 </TagBadge>
-                <BrutalButton tone="mint" onClick={() => runDelegation('delegate')} disabled={!connectedWallet || busy !== null || backendDelegated || !appConfig.delegateAddress}>
-                  {busy === 'delegate' ? 'Activating…' : 'Activate Delegation'}
-                </BrutalButton>
-                <BrutalButton tone="dark" onClick={() => runDelegation('revoke')} disabled={!connectedWallet || busy !== null || !backendDelegated}>
-                  {busy === 'revoke' ? 'Revoking…' : 'Revoke Delegation'}
-                </BrutalButton>
-                <BrutalButton tone="light" onClick={() => loadSession().catch((err) => setError(err?.message || 'Could not verify delegation right now.'))} disabled={busy !== null}>
-                  Check Again
-                </BrutalButton>
+                {delegationStatus === 'Active' ? (
+                  <BrutalButton tone="dark" onClick={() => runDelegation('revoke')} disabled={!connectedWallet || busy !== null}>
+                    {busy === 'revoke' ? 'Revoking…' : 'Revoke Delegation'}
+                  </BrutalButton>
+                ) : delegationStatus === 'Not active' ? (
+                  <BrutalButton tone="mint" onClick={() => runDelegation('delegate')} disabled={!connectedWallet || busy !== null || !appConfig.delegateAddress}>
+                    {busy === 'delegate' ? 'Activating…' : 'Activate Delegation'}
+                  </BrutalButton>
+                ) : null}
+                {delegationError ? (
+                  <BrutalButton tone="light" onClick={() => loadSession().catch((err) => { setError(err?.message || 'Could not verify delegation right now.'); setDelegationError('Could not verify delegation'); })} disabled={busy !== null}>
+                    Check Again
+                  </BrutalButton>
+                ) : null}
               </div>
-              <div className="mt-3 text-sm">Claude can read wallet status without delegation, but minting requires delegation.</div>
+              <div className="mt-3 text-sm">{delegationStatus === 'Active' ? 'Minting is enabled for Claude.' : delegationStatus === 'Not active' ? 'Claude can read wallet status, but minting requires delegation.' : delegationError ? 'Could not verify delegation right now.' : 'Checking delegation…'}</div>
             </InfoBox>
 
             <InfoBox title="step 4 · approve claude" tone="light">
               <div className="flex flex-wrap items-center gap-3">
                 <BrutalButton tone="dark" onClick={approveClaude} disabled={!canApprove || busy !== null || approved}>
-                  {approved ? 'Claude Access Approved' : busy === 'approve' ? 'Redirecting…' : 'Approve Claude Access'}
+                  {busy === 'approve' ? 'Approving…' : approved ? 'Approved. Returning to Claude…' : 'Approve Claude Access'}
                 </BrutalButton>
-                <BrutalButton href={redirectUri || '/'} tone="light">{approved ? 'Return to Claude' : 'Cancel and Return'}</BrutalButton>
+                <BrutalButton href="https://claude.ai/settings/connectors" tone="light">{approved ? 'Return to Claude' : 'Cancel and Return'}</BrutalButton>
+                {showReturnFallback && approved ? <BrutalButton href={approveUrl} tone="light">Return to Claude</BrutalButton> : null}
               </div>
-              <div className="mt-3 text-sm">{approved ? 'Claude access approved.' : canApprove ? 'This completes authorization and returns to Claude.' : 'Sign with your wallet first.'}</div>
+              <div className="mt-3 text-sm">{approved ? 'Approved. Returning to Claude…' : canApprove ? 'This completes authorization and returns to Claude.' : 'Sign with your wallet first.'}</div>
             </InfoBox>
           </div>
 
