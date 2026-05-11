@@ -1,85 +1,94 @@
 import { SiteShell } from '@/components/SiteShell';
-import { BrutalCard, ContractRow, HighlightText, ProofCard, SectionLabel, TagBadge } from '@/components/brutal-ui';
+import { BrutalCard, ContractRow, ProofCard, SectionLabel, TagBadge } from '@/components/brutal-ui';
 import { appConfig } from '@/lib/config';
 import { getServerTokenInfo } from '@/lib/server-api';
 
+function formatNumber(value?: string | number | null) {
+  if (value === null || value === undefined || value === '') return 'Coming soon';
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num.toLocaleString() : String(value);
+}
+
 export default async function ProofPage() {
   const tokenInfo = await getServerTokenInfo();
+  const mcpUrl = appConfig.mcpPublicUrl || 'https://mcp.catshit.meme';
+
   return (
     <SiteShell>
       <div className="space-y-10">
         <div className="space-y-4">
-          <SectionLabel tone="mint">proof</SectionLabel>
-          <h1 className="display-text text-[clamp(4rem,10vw,7rem)] leading-[0.88] text-fog">PROOF</h1>
-          <p className="max-w-4xl text-lg leading-8 text-fog/82">THREE PILLARS: EIP-7702 × FAIR LAUNCH × AI AGENT. EACH VERIFIABLE IN 1 CLICK.</p>
+          <SectionLabel tone="mint">PROOF</SectionLabel>
+          <h1 className="display-text text-[clamp(4rem,10vw,7rem)] leading-[0.88] text-fog">Proof</h1>
+          <p className="max-w-4xl text-lg leading-8 text-fog/82">Three pillars: EIP-7702, fair launch, and AI-native minting. Each one is verifiable.</p>
         </div>
         <div className="grid gap-5 md:grid-cols-3">
-          <ProofCard title="EIP-7702" badge="LIVE ✓">users sign one 7702 authorization; ur EOA delegates to MintDelegate.</ProofCard>
-          <ProofCard title="FAIR LAUNCH" badge="0% RETAINED ✓">no presale. mint proceeds go toward LP. LP locked after launch.</ProofCard>
-          <ProofCard title="AI AGENT" badge="GPT-NATIVE ✓">ChatGPT mints on user’s behalf via MCP server. relayer broadcasts tx; contract enforces recipient = caller.</ProofCard>
+          <ProofCard title="EIP-7702" badge="LIVE">Users sign one authorization. Their wallet delegates to the MintDelegate.</ProofCard>
+          <ProofCard title="Fair Launch" badge="OPEN">No presale. Mint proceeds support the launch pool. LP is locked after launch.</ProofCard>
+          <ProofCard title="AI Agent" badge="MCP">Claude can request mints through MCP. The contract still enforces recipient, quota, and mint rules.</ProofCard>
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr,0.9fr]">
           <BrutalCard tone="light" className="text-ink">
-            <div className="cat-divider inline-block pr-10"><SectionLabel tone="purple">verified core</SectionLabel></div>
-            <div className="mt-4 display-text text-4xl leading-none">core contracts</div>
-            <div className="mt-4"><TagBadge tone="mint">verified badges</TagBadge></div>
+            <div className="cat-divider inline-block pr-10"><SectionLabel tone="purple">Core Contracts</SectionLabel></div>
+            <div className="mt-4 display-text text-4xl leading-none">Core Contracts</div>
+            <p className="mt-4 text-sm leading-7 text-ink/75">These are the live contracts used by CATSHIT on Sepolia.</p>
             <div className="mt-5">
-              <ContractRow label="token" value={tokenInfo?.tokenAddress || 'placeholder-from-env'} href={tokenInfo?.tokenAddress ? `${appConfig.explorerBase}/address/${tokenInfo.tokenAddress}` : undefined} />
-              <ContractRow label="MintDelegate" value={tokenInfo?.delegateAddress || 'placeholder-from-env'} href={tokenInfo?.delegateAddress ? `${appConfig.explorerBase}/address/${tokenInfo.delegateAddress}` : undefined} />
-              <ContractRow label="chain" value={`${appConfig.networkSlug} · chainId ${appConfig.chainId}`} />
+              <ContractRow label="Token" value={tokenInfo?.tokenAddress || 'Coming soon'} href={tokenInfo?.tokenAddress ? `${appConfig.explorerBase}/address/${tokenInfo.tokenAddress}` : undefined} />
+              <ContractRow label="MintDelegate" value={tokenInfo?.delegateAddress || 'Coming soon'} href={tokenInfo?.delegateAddress ? `${appConfig.explorerBase}/address/${tokenInfo.delegateAddress}` : undefined} />
+              <ContractRow label="Network" value={`${appConfig.networkName} · chainId ${appConfig.chainId}`} />
             </div>
           </BrutalCard>
           <BrutalCard tone="black">
-            <div className="display-text text-4xl leading-none text-mint">EVERY CLAIM HAS A TX</div>
+            <div className="display-text text-4xl leading-none text-mint">Every Mint Has a Transaction</div>
             <div className="mt-5 space-y-3 text-sm leading-7 text-fog/92">
-              <div>✓ no presale</div>
-              <div>✓ team allocation, if any, disclosed</div>
-              <div>✓ LP reserve added to PancakeSwap</div>
-              <div>✓ LP locked</div>
-              <div>✓ contract immutable / no hidden admin mint</div>
-              <div>✓ team runway = LP swap fees if applicable</div>
+              <div>• No presale</div>
+              <div>• Team allocation, if any, is disclosed</div>
+              <div>• LP reserve is added to PancakeSwap</div>
+              <div>• LP is locked</div>
+              <div>• Contract has no hidden admin mint</div>
+              <div>• Team runway comes from LP swap fees if applicable</div>
             </div>
           </BrutalCard>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
           <BrutalCard tone="proof">
-            <div className="display-text text-4xl leading-none">LP LOCK — LIVE STATUS</div>
+            <div className="display-text text-4xl leading-none">LP Lock</div>
+            <p className="mt-4 text-sm leading-7 text-ink/80">LP lock data will appear here after final launch deployment.</p>
             <div className="mt-5 space-y-3 text-sm leading-7">
-              <div><HighlightText tone="gold">lock id</HighlightText> placeholder</div>
-              <div><HighlightText tone="mint">status</HighlightText> placeholder</div>
-              <div><HighlightText tone="gold">unlock at</HighlightText> placeholder</div>
-              <div><HighlightText tone="mint">locker contract</HighlightText> placeholder</div>
-              <div><HighlightText tone="gold">pool</HighlightText> placeholder</div>
-              <div><HighlightText tone="green">team wallet / fee runway</HighlightText> placeholder</div>
+              <div><strong>Lock ID:</strong> Coming soon</div>
+              <div><strong>Status:</strong> Coming soon</div>
+              <div><strong>Unlock date:</strong> Coming soon</div>
+              <div><strong>Locker contract:</strong> Coming soon</div>
+              <div><strong>Pool:</strong> Coming soon</div>
+              <div><strong>Team wallet / fee runway:</strong> Coming soon</div>
             </div>
           </BrutalCard>
           <BrutalCard tone="light" className="text-ink">
             <div className="flex items-center justify-between gap-3">
-              <div className="display-text text-4xl leading-none">PUBLIC MINT</div>
+              <div className="display-text text-4xl leading-none">Public Mint</div>
               <TagBadge tone="mint">OPEN</TagBadge>
             </div>
             <div className="mt-5 space-y-3 text-sm leading-7 text-ink/85">
-              <div>mint pool — {tokenInfo?.remaining ?? 'placeholder'}</div>
-              <div>per-wallet cap — {tokenInfo?.maxPerWallet ?? 'placeholder'}</div>
-              <div>$catshit per mint — {tokenInfo?.mintAmount ?? 'placeholder'}</div>
-              <div>mint price — {tokenInfo?.mintPriceEth ?? 'placeholder'}</div>
-              <div>public supply minted — {tokenInfo?.totalMints ?? 'placeholder'}</div>
-              <div>max supply — {tokenInfo?.maxTotalMints ?? 'placeholder'}</div>
+              <div><strong>Mint pool:</strong> {formatNumber(tokenInfo?.remaining)} remaining</div>
+              <div><strong>Per-wallet cap:</strong> {formatNumber(tokenInfo?.maxPerWallet)}</div>
+              <div><strong>Mint price:</strong> {tokenInfo?.mintPriceEth || 'Coming soon'}</div>
+              <div><strong>Public supply minted:</strong> {formatNumber(tokenInfo?.totalMints)}</div>
+              <div><strong>Max supply:</strong> {formatNumber(tokenInfo?.maxTotalMints)}</div>
+              <div><strong>$CATSHIT per mint:</strong> {tokenInfo?.mintAmount || 'Coming soon'}</div>
             </div>
           </BrutalCard>
         </div>
         <BrutalCard tone="dark">
-          <div className="display-text text-4xl leading-none">AI INTEGRATION</div>
+          <div className="display-text text-4xl leading-none">AI Integration</div>
           <div className="mt-5 space-y-4 text-sm leading-7 text-fog/92">
-            <div>mcp endpoint — <HighlightText tone="mint">{appConfig.mcpEndpoint}</HighlightText></div>
-            <div>protocol — <HighlightText tone="proof">MCP</HighlightText></div>
-            <div className="flex flex-wrap gap-2">tools available — <HighlightText tone="mint">token_mint</HighlightText> <HighlightText tone="proof">token_balance</HighlightText> <HighlightText tone="mint">token_info</HighlightText> <HighlightText tone="proof">mint_quota_get</HighlightText> <HighlightText tone="mint">authorization_status</HighlightText></div>
-            <div>connector setup — placeholder walkthrough + links</div>
+            <div><strong>MCP endpoint:</strong> {mcpUrl}</div>
+            <div><strong>Protocol:</strong> MCP</div>
+            <div className="flex flex-wrap gap-2"><strong>Tools available:</strong> <TagBadge tone="mint">token_mint</TagBadge> <TagBadge tone="light">token_balance</TagBadge> <TagBadge tone="mint">token_info</TagBadge> <TagBadge tone="light">mint_quota_get</TagBadge> <TagBadge tone="mint">wallet_status</TagBadge> <TagBadge tone="light">authorization_status</TagBadge> <TagBadge tone="mint">tx_status</TagBadge></div>
+            <div><strong>Connector setup:</strong> Use the Connect page to add CATSHIT to Claude.</div>
           </div>
         </BrutalCard>
         <BrutalCard tone="black">
-          <div className="display-text text-4xl leading-none text-fog">VERIFY YOURSELF</div>
-          <p className="mt-4 text-sm leading-7 text-fog/84">placeholder verification copy for BscScan, contract checks, LP lock checks, and MCP endpoint verification goes here. we can turn this into exact commands once final deployment data lands.</p>
+          <div className="display-text text-4xl leading-none text-fog">Verify Yourself</div>
+          <p className="mt-4 text-sm leading-7 text-fog/84">You can verify the contracts, connector endpoint, and transaction history yourself. Final BscScan/Etherscan links and LP lock links will appear here as deployment data is finalized.</p>
         </BrutalCard>
       </div>
     </SiteShell>

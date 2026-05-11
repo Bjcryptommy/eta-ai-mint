@@ -4,17 +4,17 @@ export function HowItWorks() {
   return (
     <section className="space-y-5">
       <div className="cat-divider inline-block pr-10">
-        <SectionLabel tone="mint">HOW IT WORKS</SectionLabel>
+        <SectionLabel tone="mint">How it works</SectionLabel>
       </div>
       <div className="grid gap-5 md:grid-cols-3">
-        <StepCard number="01" title="SIGN ONCE">
-          u sign an eip-7702 authorization pointing ur eoa at our MintDelegate. wallet pops once. that’s literally it.
+        <StepCard number="01" title="Sign once">
+          Sign a wallet message to link your wallet to your Claude session.
         </StepCard>
-        <StepCard number="02" title="U ACTIVATE">
-          ur wallet broadcasts the signed type-4 self-tx that sets ur eoa’s code to the delegate. after that ur EOA pays the per-mint fee.
+        <StepCard number="02" title="Activate delegation">
+          Approve the MintDelegate so Claude can request mints through MCP.
         </StepCard>
-        <StepCard number="03" title="CHATGPT MINTS $CATSHIT" tone="mint">
-          connect this backend to ChatGPT. say “mint me some catshit”. relayer covers mint tx gas. web page cannot mint — only MCP can.
+        <StepCard number="03" title="Mint by chat" tone="mint">
+          Ask Claude to mint $CATSHIT. The relayer broadcasts the transaction, and the contract enforces the wallet rules.
         </StepCard>
       </div>
     </section>

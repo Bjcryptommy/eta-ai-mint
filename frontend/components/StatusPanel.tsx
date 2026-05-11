@@ -8,6 +8,12 @@ import { appConfig } from '@/lib/config';
 import { AddressPill, BrutalCard, StatusRow } from './brutal-ui';
 import { WalletConnectAction } from './WalletConnectAction';
 
+function formatMintProgress(status: WalletStatus | null, tokenInfo: TokenInfo | null) {
+  const minted = status?.mintsOf ?? '0';
+  const max = tokenInfo?.maxTotalMints ?? '21000';
+  return `${minted} / ${max}`;
+}
+
 export function StatusPanel({ status, tokenInfo }: { status: WalletStatus | null; tokenInfo: TokenInfo | null }) {
   const { isConnected } = useAccount();
   const { disconnect } = useDisconnect();
@@ -54,34 +60,36 @@ export function StatusPanel({ status, tokenInfo }: { status: WalletStatus | null
   }
 
   return (
-    <BrutalCard tone="light" className="grid-bg text-ink" >
+    <BrutalCard tone="light" className="grid-bg text-ink">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="display-text text-4xl leading-none">UR STATUS</div>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/75">Connect your wallet to inspect whether Claude/CATSHIT already linked and delegated it. This page is now status-first, not the approval surface.</p>
+          <div className="display-text text-4xl leading-none">Your Status</div>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/75">Connect your wallet to see whether it is linked, delegated, and ready for Claude minting.</p>
         </div>
-        <WalletConnectAction label="CONNECT UR WALLET" tone="mint" />
+        <WalletConnectAction label="Connect Wallet" tone="mint" />
       </div>
       <div className="mt-6 space-y-1">
-        <StatusRow label="wallet" value={status?.wallet ? <AddressPill value={status.wallet} /> : 'connect wallet'} />
-        <StatusRow label="network" value={isConnected ? `${appConfig.networkName}${activeChainId ? ` · chainId ${activeChainId}` : ''}` : `${appConfig.networkName} · chainId ${appConfig.chainId}`} />
-        <StatusRow label="delegated to" value={status?.delegated ? 'MintDelegate active' : 'nothing active yet'} />
-        <StatusRow label="ur bag" value={status?.tokenBalance ?? '—'} />
-        <StatusRow label="public mint" value={`0 / ${tokenInfo?.maxTotalMints ?? '210000000000'}`} />
-        <StatusRow label="remaining slots" value={tokenInfo?.remaining ?? '—'} />
-        <StatusRow label="quota" value={status?.quotaRemaining ?? '—'} />
+        <StatusRow label="Wallet" value={status?.wallet ? <AddressPill value={status.wallet} /> : 'Connect wallet'} />
+        <StatusRow label="Network" value={isConnected ? `${appConfig.networkName}${activeChainId ? ` · chainId ${activeChainId}` : ''}` : appConfig.networkName} />
+        <StatusRow label="Delegation" value={status?.delegated ? 'Active' : 'Not active'} />
+        <StatusRow label="Token balance" value={status?.tokenBalance ?? '—'} />
+        <StatusRow label="Public mint" value={formatMintProgress(status, tokenInfo)} />
+        <StatusRow label="Remaining quota" value={status?.quotaRemaining ?? '—'} />
       </div>
       {wrongChain ? (
         <div className="mt-5 rounded-[18px] border-[3px] border-ink bg-mint p-4 text-sm font-bold text-ink">
           <div>Wrong network detected.</div>
           <div className="mt-1 text-xs uppercase tracking-[0.18em]">Target: {appConfig.networkName} · chainId {appConfig.chainId}</div>
           <button className="mt-3 rounded-xl border-[3px] border-ink bg-ink px-4 py-2 text-xs uppercase tracking-[0.18em] text-mint" onClick={requestChainSwitch} disabled={switching}>
-            {switching ? 'switching…' : switchLabel}
+            {switching ? 'Switching…' : switchLabel}
           </button>
           {switchError ? <div className="mt-2 text-xs text-red-700">{switchError}</div> : null}
         </div>
       ) : null}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t-[3px] border-mint pt-4 text-sm font-semibold text-ink/80"><div>{isConnected ? 'wallet connected. if Claude finished auth already, this page will reflect it.' : 'connect ur wallet here only to inspect status.'}</div>{isConnected ? <button className="rounded-xl border-[3px] border-ink bg-light-card px-4 py-2 text-xs uppercase tracking-[0.18em] text-ink" onClick={() => disconnect()}>disconnect</button> : null}</div>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t-[3px] border-mint pt-4 text-sm font-semibold text-ink/80">
+        <div>{isConnected ? 'Your connected wallet status appears here after Claude finishes approval.' : 'Connect your wallet to inspect status.'}</div>
+        {isConnected ? <button className="rounded-xl border-[3px] border-ink bg-light-card px-4 py-2 text-xs uppercase tracking-[0.18em] text-ink" onClick={() => disconnect()}>Disconnect Wallet</button> : null}
+      </div>
     </BrutalCard>
   );
 }

@@ -5,11 +5,11 @@ import { useAccount } from 'wagmi';
 import { getTokenInfo, getWalletStatus } from '@/lib/api';
 import { appConfig } from '@/lib/config';
 import { DelegationDebug, TokenInfo, WalletStatus } from '@/lib/types';
-import { BrutalCard, ContractRow, HighlightText, InfoBox, ProofCard, SectionLabel, TagBadge } from './brutal-ui';
+import { BrutalButton, BrutalCard, ContractRow, HighlightText, InfoBox, ProofCard, SectionLabel, TagBadge } from './brutal-ui';
 import { StatusPanel } from './StatusPanel';
 import { HowItWorks } from './HowItWorks';
 import { DebugPanel } from './DebugPanel';
-import { WalletConnectAction } from './WalletConnectAction';
+import { AddressPill } from './brutal-ui';
 import { ClaudeConnectorCard } from './ClaudeConnectorCard';
 import { readDelegatedOverride } from '@/lib/wallet-ui-state';
 
@@ -38,25 +38,27 @@ export function HomeClient({ initialTokenInfo }: { initialTokenInfo: TokenInfo |
           <span className="h-3 w-3 rounded-sm border-[3px] border-ink bg-mint" />
           <SectionLabel tone="mint">EIP-7702</SectionLabel>
           <SectionLabel tone="black">MCP</SectionLabel>
-          <SectionLabel tone="light">CHATGPT MINT</SectionLabel>
+          <SectionLabel tone="light">CLAUDE MINT</SectionLabel>
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.2fr,0.8fr] lg:items-start">
           <div>
-            <h1 className="display-text text-[clamp(4rem,10vw,7rem)] leading-[0.9] text-fog">MINT <HighlightText tone="mint">$CATSHIT</HighlightText><br />THROUGH <HighlightText tone="mint">CHATGPT</HighlightText></h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-mint md:text-lg">ONE SIGNATURE. GPT MINTS. MUCH BAG.</p>
-            <p className="mt-4 max-w-3xl text-[15px] leading-8 text-fog/84 md:text-base">add CATSHIT to Claude first, finish any auth there, then come back here to inspect your wallet status. once the wallet is linked and delegated, Claude can mint on your behalf through MCP.</p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <WalletConnectAction tone="mint" label="connect wallet" />
+            <h1 className="display-text text-[clamp(4rem,10vw,7rem)] leading-[0.9] text-fog">MINT <HighlightText tone="mint">$CATSHIT</HighlightText><br />THROUGH <HighlightText tone="mint">CLAUDE</HighlightText></h1>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-mint md:text-lg">One wallet signature. Claude can mint through your approved session.</p>
+            <p className="mt-4 max-w-3xl text-[15px] leading-8 text-fog/84 md:text-base">Add CATSHIT to Claude, link your wallet once, and let Claude check your quota or request a mint. Your private key is never exposed.</p>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <BrutalButton href="/connect" tone="mint">Connect to Claude</BrutalButton>
+              <BrutalButton href="/proof" tone="light">View Proof</BrutalButton>
+              {address ? <AddressPill value={address} /> : null}
             </div>
           </div>
           <BrutalCard tone="light" className="grid-bg space-y-4 text-ink">
             <div className="flex items-center justify-between gap-3">
-              <TagBadge tone="purple">MUCH WEB3</TagBadge>
+              <TagBadge tone="purple">CAT TERMINAL</TagBadge>
               <div className="mono-ui text-xs font-bold uppercase tracking-[0.22em] text-ink/60">🐾 cat terminal</div>
             </div>
-            <div className="display-text text-4xl leading-none">dark cat alley.<br />organized chaos.</div>
-            <InfoBox title="catshit.exe loaded" tone="light">&gt; wallet sniffing...<br />&gt; gpt mint ready<br />&gt; mcp route armed</InfoBox>
-            <InfoBox title="launch lane" tone="mint">wallet + site logic now follow the configured chain env first. no more hardcoded BSC fallback vibes.</InfoBox>
+            <div className="display-text text-4xl leading-none">Dark Cat Alley.<br />Organized Chaos.</div>
+            <InfoBox title="cat terminal" tone="light">&gt; wallet detected<br />&gt; Claude connector ready<br />&gt; MCP route armed</InfoBox>
+            <InfoBox title="launch lane" tone="mint">Wallet and site logic now use the configured chain environment. No hardcoded fallback chain.</InfoBox>
           </BrutalCard>
         </div>
       </section>
@@ -74,35 +76,34 @@ export function HomeClient({ initialTokenInfo }: { initialTokenInfo: TokenInfo |
         <BrutalCard tone="black">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="display-text text-4xl leading-none text-mint">WHY THIS IS SAFE</div>
-              <div className="mt-2"><TagBadge tone="mint">NO RUG</TagBadge></div>
+              <div className="display-text text-4xl leading-none text-mint">Why this is safe</div>
             </div>
           </div>
           <div className="mt-6 space-y-4 text-sm leading-7 text-fog md:text-base">
-            <div>✓ token contract requires <HighlightText tone="mint">tx.origin == RELAYER</HighlightText> and <HighlightText tone="proof">msg.sender</HighlightText> code must match 7702 delegate logic</div>
-            <div>✓ receiver is always <HighlightText tone="mint">msg.sender</HighlightText>, even relayer can’t mint to anyone else</div>
-            <div>✓ <HighlightText tone="green">MintDelegate</HighlightText> has no storage, no fallback, no admin keys, no upgrade path</div>
-            <div>✓ user can <HighlightText tone="proof">revoke</HighlightText> anytime from /revoke by signing authorization to <HighlightText tone="danger">0x0</HighlightText></div>
+            <div>• The contract only accepts relayer-routed mint calls. <HighlightText tone="mint">tx.origin == RELAYER</HighlightText></div>
+            <div>• Tokens can only mint to the linked wallet. <HighlightText tone="proof">msg.sender</HighlightText></div>
+            <div>• <HighlightText tone="green">MintDelegate</HighlightText> has no admin keys, storage, or upgrade path.</div>
+            <div>• You can revoke delegation anytime from the Revoke page. <HighlightText tone="danger">0x0</HighlightText></div>
           </div>
           <details className="mt-6 rounded-[18px] border-[3px] border-mint bg-panel-2 p-4 text-fog">
-            <summary className="mono-ui cursor-pointer text-xs font-bold uppercase tracking-[0.24em]">contract info</summary>
+            <summary className="mono-ui cursor-pointer text-xs font-bold uppercase tracking-[0.24em]">Contract info</summary>
             <div className="mt-4">
-              <ContractRow label="token" value={tokenInfo?.tokenAddress || 'placeholder-from-env'} href={tokenInfo?.tokenAddress ? `${appConfig.explorerBase}/address/${tokenInfo.tokenAddress}` : undefined} />
-              <ContractRow label="delegate" value={tokenInfo?.delegateAddress || appConfig.delegateAddress || 'placeholder-from-env'} href={tokenInfo?.delegateAddress ? `${appConfig.explorerBase}/address/${tokenInfo.delegateAddress}` : undefined} />
-              <ContractRow label="relayer" value={tokenInfo?.relayerAddress || 'placeholder-from-env'} />
-              <ContractRow label="chain" value={`${appConfig.networkSlug} · chainId ${appConfig.chainId}`} />
-              <ContractRow label="mcp endpoint" value={appConfig.mcpEndpoint} />
+              <ContractRow label="token" value={tokenInfo?.tokenAddress || 'Coming soon'} href={tokenInfo?.tokenAddress ? `${appConfig.explorerBase}/address/${tokenInfo.tokenAddress}` : undefined} />
+              <ContractRow label="delegate" value={tokenInfo?.delegateAddress || appConfig.delegateAddress || 'Coming soon'} href={tokenInfo?.delegateAddress ? `${appConfig.explorerBase}/address/${tokenInfo.delegateAddress}` : undefined} />
+              <ContractRow label="relayer" value={tokenInfo?.relayerAddress || 'Coming soon'} />
+              <ContractRow label="chain" value={`${appConfig.networkName} · chainId ${appConfig.chainId}`} />
+              <ContractRow label="mcp endpoint" value={appConfig.mcpPublicUrl || appConfig.mcpEndpoint} />
             </div>
           </details>
         </BrutalCard>
       </section>
 
       <section className="space-y-5">
-        <SectionLabel tone="black">DON’T TRUST. VERIFY.</SectionLabel>
+        <SectionLabel tone="black">Don’t trust. Verify.</SectionLabel>
         <div className="grid gap-5 md:grid-cols-3">
-          <ProofCard title="EIP-7702" badge="LIVE ✓">users sign one 7702 authorization; ur EOA delegates to MintDelegate.</ProofCard>
-          <ProofCard title="FAIR LAUNCH" badge="0% RETAINED ✓">no presale. mint proceeds go toward LP. LP locked after launch.</ProofCard>
-          <ProofCard title="AI AGENT" badge="GPT-NATIVE ✓">ChatGPT mints on user’s behalf via MCP server. relayer broadcasts tx; contract enforces recipient = caller.</ProofCard>
+          <ProofCard title="EIP-7702" badge="VERIFIABLE">Users sign one authorization. Their wallet delegates to the MintDelegate.</ProofCard>
+          <ProofCard title="Fair Launch" badge="VERIFIABLE">No presale. Mint proceeds support the launch pool. LP is locked after launch.</ProofCard>
+          <ProofCard title="AI Agent" badge="VERIFIABLE">Claude can request mints through MCP. The contract still enforces recipient, quota, and mint rules.</ProofCard>
         </div>
       </section>
     </div>

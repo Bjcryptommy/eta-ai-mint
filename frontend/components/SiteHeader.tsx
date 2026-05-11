@@ -8,7 +8,7 @@ import { clsx } from 'clsx';
 
 const nav = [
   { href: '/', label: 'home' },
-  { href: '/connect', label: 'claude' },
+  { href: '/connect', label: 'connect' },
   { href: '/proof', label: 'proof' },
   { href: '/revoke', label: 'revoke' },
   { href: '/stickers', label: 'stickers' },

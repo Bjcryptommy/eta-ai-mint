@@ -9,33 +9,33 @@ export default function ConnectPage() {
       <div className="space-y-8">
         <div className="space-y-4">
           <SectionLabel tone="mint">CONNECT CLAUDE</SectionLabel>
-          <h1 className="display-text text-[clamp(3.8rem,9vw,6rem)] leading-[0.9] text-fog">CONNECT CLAUDE</h1>
-          <p className="text-lg font-semibold uppercase text-mint">one click. much claude. wow.</p>
-          <p className="max-w-3xl text-base leading-7 text-fog/82">The website now works like a simple Claude connector launcher. Add CATSHIT to Claude first, complete any auth there, then come back here only to inspect your wallet state.</p>
+          <h1 className="display-text text-[clamp(3.8rem,9vw,6rem)] leading-[0.9] text-fog">Connect CATSHIT to Claude</h1>
+          <p className="text-lg font-semibold text-mint">Add CATSHIT as a Claude connector, link your wallet once, then mint directly from Claude.</p>
+          <p className="max-w-3xl text-base leading-7 text-fog/82">CATSHIT lets Claude check your wallet status, read your mint quota, and request mints through your approved wallet session. Your private key is never exposed.</p>
           <div className="flex flex-wrap gap-3">
-            <WalletConnectAction tone="mint" label="connect wallet" />
-            <BrutalButton href="/" tone="light">back</BrutalButton>
+            <BrutalButton href="https://claude.ai/settings/connectors?connectorName=CATSHIT&connectorUrl=https%3A%2F%2Fmcp.catshit.meme&modal=add-custom-connector" tone="mint">Connect to Claude</BrutalButton>
+            <WalletConnectAction tone="light" label="Connect Wallet" />
           </div>
         </div>
         <ClaudeConnectorCard />
         <div className="grid gap-5 lg:grid-cols-[1.1fr,0.9fr]">
           <BrutalCard tone="dark">
-            <div className="display-text text-4xl leading-none">WHAT HAPPENS NEXT</div>
+            <div className="display-text text-4xl leading-none">How it works</div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <StepCard number="01" title="open claude">Click Connect Claude and Claude opens the custom connector modal with CATSHIT pre-filled.</StepCard>
-              <StepCard number="02" title="add connector" tone="dark">Click Add inside Claude. If CATSHIT auth is required, Claude sends you through the CATSHIT auth flow.</StepCard>
-              <StepCard number="03" title="come back" tone="dark">After Claude finishes the authorization/session flow, come back here and check whether your wallet is linked and delegated.</StepCard>
-              <StepCard number="04" title="mint from claude" tone="mint">Open Claude and say: mint me 1 catshit.</StepCard>
+              <StepCard number="01" title="Open Claude">Click Connect to Claude to open Claude’s connector setup.</StepCard>
+              <StepCard number="02" title="Add CATSHIT" tone="dark">Add the connector using the pre-filled MCP URL.</StepCard>
+              <StepCard number="03" title="Approve access" tone="dark">Connect your wallet and approve CATSHIT access for that Claude session.</StepCard>
+              <StepCard number="04" title="Mint by chat" tone="mint">Ask Claude to check your wallet, show your quota, or mint tokens.</StepCard>
             </div>
           </BrutalCard>
           <BrutalCard tone="dark">
             <div className="display-text text-4xl leading-none">Fee & Limits</div>
             <div className="mt-5 space-y-3 text-sm leading-7">
-              <InfoBox title="fee per mint" tone="dark">read from backend / token config</InfoBox>
-              <InfoBox title="paid from" tone="dark">user wallet via delegated EOA</InfoBox>
-              <InfoBox title="wallet cap" tone="dark">per-wallet cap enforced onchain</InfoBox>
-              <InfoBox title="max user will ever pay" tone="dark">mint fee only. relayer ships gas for MCP broadcast path.</InfoBox>
-              <InfoBox title="important" tone="dark">This does not fully auto-add without user approval. It only opens Claude with the custom connector modal pre-filled.</InfoBox>
+              <InfoBox title="Fee per mint" tone="dark">Read from token config. You only pay the mint fee if the token requires one.</InfoBox>
+              <InfoBox title="Paid from" tone="dark">Your linked wallet through delegated EIP-7702 authorization.</InfoBox>
+              <InfoBox title="Wallet cap" tone="dark">Mint limits are enforced per wallet.</InfoBox>
+              <InfoBox title="Gas" tone="dark">The relayer handles gas for Claude/MCP broadcast transactions.</InfoBox>
+              <InfoBox title="Important" tone="dark">CATSHIT does not add itself to Claude without your approval. You always confirm the connector and approve wallet access yourself.</InfoBox>
             </div>
           </BrutalCard>
         </div>
