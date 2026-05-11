@@ -29,6 +29,10 @@ type SessionData = {
 export default function OauthAuthorizeClient() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session') || '';
+  const grantId = searchParams.get('grant') || '';
+  const stateParam = searchParams.get('state') || '';
+  const redirectUri = searchParams.get('redirect_uri') || '';
+  const mcpOrigin = searchParams.get('mcp_origin') || appConfig.mcpEndpoint.replace(/\/mcp$/, '');
   const [session, setSession] = useState<SessionData | null>(null);
   const [wallet, setWallet] = useState<string>('');
   const [message, setMessage] = useState<string>('');
@@ -119,6 +123,7 @@ export default function OauthAuthorizeClient() {
   const delegated = Boolean(session?.wallet_status?.delegated);
   const signed = ['signed', 'delegated'].includes(session?.session?.status || '');
   const complete = signed;
+  const approveHref = grantId && sessionId ? `${mcpOrigin}/oauth/approve?grant=${encodeURIComponent(grantId)}&session=${encodeURIComponent(sessionId)}${stateParam ? `&state=${encodeURIComponent(stateParam)}` : ''}${redirectUri ? `&redirect_uri=${encodeURIComponent(redirectUri)}` : ''}` : '';
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-10 md:px-6">
@@ -188,7 +193,8 @@ export default function OauthAuthorizeClient() {
 
           <BrutalCard tone="mint" className="text-ink">
             <SectionLabel tone="black">DONE</SectionLabel>
-            <p className="mt-3 text-sm leading-7">{complete ? 'Authorization complete. Return to Claude/ChatGPT.' : 'Finish wallet connect + signature here, then return to Claude/ChatGPT.'}</p>
+            <p className="mt-3 text-sm leading-7">{complete ? 'Authorization complete. Finish the Claude approval redirect below.' : 'Finish wallet connect + signature here, then continue approval.'}</p>
+            {complete && approveHref ? <div className="mt-4"><BrutalButton href={approveHref} tone="dark">Approve Claude Access</BrutalButton></div> : null}
           </BrutalCard>
         </div>
       </div>

@@ -1,35 +1,86 @@
 import 'dotenv/config';
 import express from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, randomBytes } from 'crypto';
+import { promises as fs } from 'fs';
+import path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as z from 'zod/v4';
 
 const app = express();
 app.use(express.json({ limit: '32kb' }));
+app.use(express.urlencoded({ extended: false }));
 
 const backendUrl = (process.env.BACKEND_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
 const backendAuthToken = process.env.BACKEND_AUTH_TOKEN || '';
 const mcpAuthToken = process.env.MCP_AUTH_TOKEN || '';
 const requireMcpAuth = process.env.REQUIRE_MCP_AUTH !== 'false';
+const mcpDevOpen = process.env.MCP_DEV_OPEN === 'true';
 const frontendPublicUrl = (process.env.FRONTEND_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
+const mcpPublicUrl = (process.env.MCP_PUBLIC_URL || process.env.NEXT_PUBLIC_MCP_PUBLIC_URL || 'http://localhost:3002').replace(/\/$/, '');
+const oauthAuthorizePath = '/oauth/authorize';
+const oauthApprovePath = '/oauth/approve';
+const oauthTokenPath = '/oauth/token';
+const oauthMetadataPath = '/.well-known/oauth-authorization-server';
+const protectedResourcePath = '/.well-known/oauth-protected-resource';
+const oauthAllowedRedirects = new Set(String(process.env.OAUTH_ALLOWED_REDIRECT_URIS || 'https://claude.ai/api/mcp/auth_callback').split(',').map((v) => v.trim()).filter(Boolean));
+const oauthCodeTtlMs = Number(process.env.OAUTH_CODE_TTL_MS || 1000 * 60 * 10);
+const oauthAccessTokenTtlMs = Number(process.env.OAUTH_ACCESS_TOKEN_TTL_MS || 1000 * 60 * 60);
+const oauthDbPath = process.env.MCP_OAUTH_DB_PATH || path.resolve(process.cwd(), 'data/oauth-store.json');
 const transports = {};
+const transportServers = {};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function sha256(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function randomSecret(size = 24) {
+  return randomBytes(size).toString('base64url');
+}
 
 function authHeaders(extra = {}) {
   return backendAuthToken ? { authorization: `Bearer ${backendAuthToken}`, ...extra } : extra;
 }
 
-async function backend(path, options = {}) {
-  const response = await fetch(`${backendUrl}${path}`, {
+function logRequest(req, extra = {}) {
+  console.log(JSON.stringify({
+    at: nowIso(),
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    hasAuthorizationHeader: Boolean(req.headers.authorization),
+    sessionIdFound: Boolean(req.headers['mcp-session-id']),
+    mcpInitializeRequest: req.path === '/mcp' && req.method === 'POST' && req.body?.method === 'initialize',
+    ...extra,
+  }));
+}
+
+app.use((req, _res, next) => {
+  logRequest(req);
+  next();
+});
+
+async function backend(pathname, options = {}) {
+  const response = await fetch(`${backendUrl}${pathname}`, {
     headers: { 'content-type': 'application/json', ...authHeaders(options.headers || {}) },
     ...options,
   });
-  const data = await response.json();
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
   return { status: response.status, data };
 }
 
-async function backendStrict(path, options = {}) {
-  const upstream = await backend(path, options);
+async function backendStrict(pathname, options = {}) {
+  const upstream = await backend(pathname, options);
   if (upstream.status >= 400) {
     const error = new Error(upstream.data?.message || upstream.data?.error?.message || `backend request failed (${upstream.status})`);
     error.upstream = upstream;
@@ -38,19 +89,109 @@ async function backendStrict(path, options = {}) {
   return upstream.data;
 }
 
-function unauthorized(res, message = 'unauthorized') {
-  return res.status(401).json({ ok: false, error: { code: 'unauthorized', message } });
+async function ensureOauthDb() {
+  await fs.mkdir(path.dirname(oauthDbPath), { recursive: true });
+  try {
+    await fs.access(oauthDbPath);
+  } catch {
+    await fs.writeFile(oauthDbPath, JSON.stringify({ grants: [], tokens: [] }, null, 2));
+  }
 }
 
-function mcpAuthMiddleware(req, res, next) {
-  if (!requireMcpAuth) return next();
-  if (!mcpAuthToken) return unauthorized(res, 'mcp auth token not configured');
+async function readOauthDb() {
+  await ensureOauthDb();
+  try {
+    const raw = await fs.readFile(oauthDbPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return {
+      grants: Array.isArray(parsed.grants) ? parsed.grants : [],
+      tokens: Array.isArray(parsed.tokens) ? parsed.tokens : [],
+    };
+  } catch {
+    return { grants: [], tokens: [] };
+  }
+}
 
-  const header = req.headers.authorization || '';
-  if (!header.startsWith('Bearer ')) return unauthorized(res, 'missing bearer token');
-  const token = header.slice('Bearer '.length).trim();
-  if (token !== mcpAuthToken) return unauthorized(res, 'invalid bearer token');
-  next();
+let oauthWriteChain = Promise.resolve();
+function updateOauthDb(mutator) {
+  oauthWriteChain = oauthWriteChain.then(async () => {
+    const db = await readOauthDb();
+    pruneOauthDb(db);
+    const result = await mutator(db);
+    await fs.writeFile(oauthDbPath, JSON.stringify(db, null, 2));
+    return result;
+  });
+  return oauthWriteChain;
+}
+
+function pruneOauthDb(db) {
+  const now = Date.now();
+  db.grants = db.grants.filter((grant) => new Date(grant.expires_at).getTime() > now && !grant.consumed_at);
+  db.tokens = db.tokens.filter((token) => new Date(token.expires_at).getTime() > now && !token.revoked_at);
+}
+
+async function createGrant({ clientId, redirectUri, state, scope, backendSessionToken, backendSessionId }) {
+  const grant = {
+    id: randomUUID(),
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    state: state || null,
+    scope: scope || 'openid profile',
+    backend_session_token_hash: sha256(backendSessionToken),
+    backend_session_id: backendSessionId,
+    code: null,
+    code_challenge: null,
+    code_challenge_method: null,
+    approved_at: null,
+    consumed_at: null,
+    created_at: nowIso(),
+    expires_at: new Date(Date.now() + oauthCodeTtlMs).toISOString(),
+  };
+  return updateOauthDb((db) => {
+    db.grants.push(grant);
+    return grant;
+  });
+}
+
+async function updateGrant(grantId, patch) {
+  return updateOauthDb((db) => {
+    const grant = db.grants.find((item) => item.id === grantId);
+    if (!grant) return null;
+    Object.assign(grant, patch);
+    return grant;
+  });
+}
+
+async function findGrantByCode(code) {
+  const db = await readOauthDb();
+  pruneOauthDb(db);
+  return db.grants.find((grant) => grant.code === code) || null;
+}
+
+async function createAccessToken({ clientId, backendSessionToken, backendSessionId, scope }) {
+  const accessToken = `catshit_${randomSecret(32)}`;
+  const token = {
+    id: randomUUID(),
+    client_id: clientId,
+    access_token_hash: sha256(accessToken),
+    backend_session_token_hash: sha256(backendSessionToken),
+    backend_session_id: backendSessionId,
+    scope: scope || 'openid profile',
+    created_at: nowIso(),
+    expires_at: new Date(Date.now() + oauthAccessTokenTtlMs).toISOString(),
+    revoked_at: null,
+  };
+  await updateOauthDb((db) => {
+    db.tokens.push(token);
+    return token;
+  });
+  return { raw: accessToken, record: token };
+}
+
+async function findAccessToken(accessToken) {
+  const db = await readOauthDb();
+  pruneOauthDb(db);
+  return db.tokens.find((token) => token.access_token_hash === sha256(accessToken)) || null;
 }
 
 function textContent(text) {
@@ -75,160 +216,269 @@ async function ensureBackendAuthSession(sessionToken, meta = {}) {
   });
 }
 
-async function backendSessionTool(path, sessionToken, body = {}) {
+async function backendSessionTool(pathname, sessionToken, body = {}) {
   await ensureBackendAuthSession(sessionToken);
-  return backend(path, {
+  return backend(pathname, {
     method: 'POST',
     body: JSON.stringify({ ...body, session_token: sessionToken }),
   });
 }
 
-function wrapLinkedSessionResponse(tool, upstream) {
+function wrapLinkedSessionResponse(upstream) {
   if (upstream.status === 428 || upstream.status === 410) {
     return {
       content: textContent(sessionPromptText(upstream.data)),
       structuredContent: upstream.data,
     };
   }
-
   if (upstream.status >= 400) {
     throw new Error(upstream.data?.message || `request failed (${upstream.status})`);
   }
-
   return upstream.data;
-}
-
-function getMcpServer({ getSessionToken }) {
-  const server = new McpServer({ name: 'eta-ai-mint-mcp', version: '0.1.0' });
-
-  server.registerTool('token_info', {
-    description: 'Get token name, symbol, mint price, mint amount, contract addresses, and current mint progress.',
-    inputSchema: {},
-  }, async () => {
-    const payload = await backendStrict('/token-info');
-    return {
-      content: textContent(`${payload.name} (${payload.symbol}) mint price is ${payload.mintPriceEth} ETH and ${payload.remaining} public mints remain.`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('wallet_status', {
-    description: 'Get the linked wallet status for this CATSHIT connector session. If no wallet is linked yet, return the connect link.',
-    inputSchema: {},
-  }, async () => {
-    const upstream = await backendSessionTool('/session/wallet-status', getSessionToken());
-    const payload = wrapLinkedSessionResponse('wallet_status', upstream);
-    if (upstream.status === 428 || upstream.status === 410) return payload;
-    return {
-      content: textContent(`Wallet ${payload.wallet}: delegated=${payload.delegated}, quota=${payload.quotaRemaining}, mints=${payload.mintsOf}, eth=${payload.ethBalanceEth}.`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('authorization_status', {
-    description: 'Check whether the wallet linked to this CATSHIT session is delegated to the configured MintDelegate.',
-    inputSchema: {},
-  }, async () => {
-    const upstream = await backendSessionTool('/session/authorization-status', getSessionToken());
-    const payload = wrapLinkedSessionResponse('authorization_status', upstream);
-    if (upstream.status === 428 || upstream.status === 410) return payload;
-    return {
-      content: textContent(payload.delegated
-        ? `${payload.wallet} is delegated to ${payload.delegateAddress}.`
-        : `${payload.wallet} is not delegated to the configured MintDelegate.`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('mint_quota_get', {
-    description: 'Get the remaining mint quota for the wallet linked to this CATSHIT session.',
-    inputSchema: {},
-  }, async () => {
-    const upstream = await backendSessionTool('/session/mint-quota', getSessionToken());
-    const payload = wrapLinkedSessionResponse('mint_quota_get', upstream);
-    if (upstream.status === 428 || upstream.status === 410) return payload;
-    return {
-      content: textContent(`${payload.wallet} has ${payload.quotaRemaining} mint slots remaining.`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('token_balance', {
-    description: 'Get the token balance and mint count for the wallet linked to this CATSHIT session.',
-    inputSchema: {},
-  }, async () => {
-    const upstream = await backendSessionTool('/session/token-balance', getSessionToken());
-    const payload = wrapLinkedSessionResponse('token_balance', upstream);
-    if (upstream.status === 428 || upstream.status === 410) return payload;
-    return {
-      content: textContent(`${payload.wallet} holds ${payload.tokenBalance} token units and has minted ${payload.mintsOf} slot(s).`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('token_mint', {
-    description: 'Mint one or more slots for the wallet linked to this CATSHIT session. The receiver is always the linked wallet, never a prompt-supplied address.',
-    inputSchema: {
-      slots: z.number().int().min(1).optional().describe('Number of slots to mint.'),
-      wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.'),
-    },
-  }, async ({ wallet, slots }) => {
-    const upstream = await backendSessionTool('/session/mint', getSessionToken(), { wallet, slots: slots ?? 1 });
-    const payload = wrapLinkedSessionResponse('token_mint', upstream);
-    if (upstream.status === 428 || upstream.status === 410) return payload;
-    return {
-      content: textContent(`Mint successful for ${payload.wallet}. tx=${payload.txHash}. remaining quota=${payload.quotaRemaining}.`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('tx_status', {
-    description: 'Get transaction status, block number, and gas used by transaction hash.',
-    inputSchema: { hash: z.string().describe('Transaction hash.') },
-  }, async ({ hash }) => {
-    const payload = await backendStrict(`/tx-status/${hash}`);
-    return {
-      content: textContent(`Transaction ${payload.txHash} is ${payload.status} in block ${payload.blockNumber}.`),
-      structuredContent: payload,
-    };
-  });
-
-  server.registerTool('revoke_info', {
-    description: 'Explain whether the wallet linked to this CATSHIT session is delegated and how revocation should work.',
-    inputSchema: {},
-  }, async () => {
-    const upstream = await backendSessionTool('/session/authorization-status', getSessionToken());
-    const payload = wrapLinkedSessionResponse('revoke_info', upstream);
-    if (upstream.status === 428 || upstream.status === 410) return payload;
-    return {
-      content: textContent(payload.delegated
-        ? `${payload.wallet} is currently delegated to ${payload.delegateAddress}. Revoke by sending a new EIP-7702 authorization that clears or replaces the current delegate.`
-        : `${payload.wallet} is not currently delegated to the configured MintDelegate.`),
-      structuredContent: payload,
-    };
-  });
-
-  return server;
 }
 
 function isInitializeRequest(body) {
   return body?.method === 'initialize';
 }
 
-app.get('/health', async (_req, res) => {
+function getBearerToken(req) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) return null;
+  return header.slice('Bearer '.length).trim();
+}
+
+async function resolveMcpAccess(req) {
+  const bearer = getBearerToken(req);
+  const sessionId = req.headers['mcp-session-id'];
+
+  if (bearer) {
+    if (mcpAuthToken && bearer === mcpAuthToken) {
+      return { ok: true, mode: 'static-token', sessionToken: sessionId || `legacy-${randomUUID()}` };
+    }
+    const oauthToken = await findAccessToken(bearer);
+    if (oauthToken) {
+      return {
+        ok: true,
+        mode: 'oauth-token',
+        sessionToken: oauthToken.backend_session_id,
+        backendSessionId: oauthToken.backend_session_id,
+        oauthToken,
+      };
+    }
+  }
+
+  if (!requireMcpAuth || mcpDevOpen) {
+    return { ok: true, mode: mcpDevOpen ? 'dev-open' : 'auth-disabled', sessionToken: sessionId || `dev-${randomUUID()}` };
+  }
+
+  return { ok: false, status: 401, message: 'missing bearer token' };
+}
+
+function getMcpServer({ getSessionToken }) {
+  const server = new McpServer({ name: 'eta-ai-mint-mcp', version: '0.2.0' });
+
+  server.registerTool('token_info', {
+    description: 'Get token name, symbol, mint price, mint amount, contract addresses, and current mint progress.',
+    inputSchema: {},
+  }, async () => {
+    const payload = await backendStrict('/token-info');
+    return { content: textContent(`${payload.name} (${payload.symbol}) mint price is ${payload.mintPriceEth} ETH and ${payload.remaining} public mints remain.`), structuredContent: payload };
+  });
+
+  server.registerTool('wallet_status', { description: 'Get the linked wallet status for this CATSHIT connector session. If no wallet is linked yet, return the connect link.', inputSchema: {} }, async () => {
+    const upstream = await backendSessionTool('/session/wallet-status', getSessionToken());
+    const payload = wrapLinkedSessionResponse(upstream);
+    if (upstream.status === 428 || upstream.status === 410) return payload;
+    return { content: textContent(`Wallet ${payload.wallet}: delegated=${payload.delegated}, quota=${payload.quotaRemaining}, mints=${payload.mintsOf}, eth=${payload.ethBalanceEth}.`), structuredContent: payload };
+  });
+
+  server.registerTool('authorization_status', { description: 'Check whether the wallet linked to this CATSHIT session is delegated to the configured MintDelegate.', inputSchema: {} }, async () => {
+    const upstream = await backendSessionTool('/session/authorization-status', getSessionToken());
+    const payload = wrapLinkedSessionResponse(upstream);
+    if (upstream.status === 428 || upstream.status === 410) return payload;
+    return { content: textContent(payload.delegated ? `${payload.wallet} is delegated to ${payload.delegateAddress}.` : `${payload.wallet} is not delegated to the configured MintDelegate.`), structuredContent: payload };
+  });
+
+  server.registerTool('mint_quota_get', { description: 'Get the remaining mint quota for the wallet linked to this CATSHIT session.', inputSchema: {} }, async () => {
+    const upstream = await backendSessionTool('/session/mint-quota', getSessionToken());
+    const payload = wrapLinkedSessionResponse(upstream);
+    if (upstream.status === 428 || upstream.status === 410) return payload;
+    return { content: textContent(`${payload.wallet} has ${payload.quotaRemaining} mint slots remaining.`), structuredContent: payload };
+  });
+
+  server.registerTool('token_balance', { description: 'Get the token balance and mint count for the wallet linked to this CATSHIT session.', inputSchema: {} }, async () => {
+    const upstream = await backendSessionTool('/session/token-balance', getSessionToken());
+    const payload = wrapLinkedSessionResponse(upstream);
+    if (upstream.status === 428 || upstream.status === 410) return payload;
+    return { content: textContent(`${payload.wallet} holds ${payload.tokenBalance} token units and has minted ${payload.mintsOf} slot(s).`), structuredContent: payload };
+  });
+
+  server.registerTool('token_mint', { description: 'Mint one or more slots for the wallet linked to this CATSHIT session. The receiver is always the linked wallet, never a prompt-supplied address.', inputSchema: { slots: z.number().int().min(1).optional().describe('Number of slots to mint.'), wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.') } }, async ({ wallet, slots }) => {
+    const upstream = await backendSessionTool('/session/mint', getSessionToken(), { wallet, slots: slots ?? 1 });
+    const payload = wrapLinkedSessionResponse(upstream);
+    if (upstream.status === 428 || upstream.status === 410) return payload;
+    return { content: textContent(`Mint successful for ${payload.wallet}. tx=${payload.txHash}. remaining quota=${payload.quotaRemaining}.`), structuredContent: payload };
+  });
+
+  server.registerTool('tx_status', { description: 'Get transaction status, block number, and gas used by transaction hash.', inputSchema: { hash: z.string().describe('Transaction hash.') } }, async ({ hash }) => {
+    const payload = await backendStrict(`/tx-status/${hash}`);
+    return { content: textContent(`Transaction ${payload.txHash} is ${payload.status} in block ${payload.blockNumber}.`), structuredContent: payload };
+  });
+
+  server.registerTool('revoke_info', { description: 'Explain whether the wallet linked to this CATSHIT session is delegated and how revocation should work.', inputSchema: {} }, async () => {
+    const upstream = await backendSessionTool('/session/authorization-status', getSessionToken());
+    const payload = wrapLinkedSessionResponse(upstream);
+    if (upstream.status === 428 || upstream.status === 410) return payload;
+    return { content: textContent(payload.delegated ? `${payload.wallet} is currently delegated to ${payload.delegateAddress}. Revoke by sending a new EIP-7702 authorization that clears or replaces the current delegate.` : `${payload.wallet} is not currently delegated to the configured MintDelegate.`), structuredContent: payload };
+  });
+
+  return server;
+}
+
+async function ensureTransport(sessionToken, meta = {}) {
+  let transport = transports[sessionToken];
+  if (transport) return transport;
+
+  transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+
+  transport.sessionId = sessionToken;
+  transport.onclose = () => {
+    if (transports[sessionToken]) delete transports[sessionToken];
+    if (transportServers[sessionToken]) delete transportServers[sessionToken];
+  };
+
+  transports[sessionToken] = transport;
+  const server = getMcpServer({ getSessionToken: () => sessionToken });
+  transportServers[sessionToken] = server;
+  await server.connect(transport);
+  await ensureBackendAuthSession(sessionToken, meta);
+  return transport;
+}
+
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'eta-ai-mint-mcp' });
+});
+
+app.get(oauthMetadataPath, (req, res) => {
+  logRequest(req, { discoveryRequest: true });
+  res.json({
+    issuer: mcpPublicUrl,
+    authorization_endpoint: `${mcpPublicUrl}${oauthAuthorizePath}`,
+    token_endpoint: `${mcpPublicUrl}${oauthTokenPath}`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    token_endpoint_auth_methods_supported: ['none'],
+    code_challenge_methods_supported: ['plain'],
+  });
+});
+
+app.get(protectedResourcePath, (req, res) => {
+  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true });
+  res.json({
+    resource: `${mcpPublicUrl}/mcp`,
+    authorization_servers: [mcpPublicUrl],
+    bearer_methods_supported: ['header'],
+    scopes_supported: ['openid', 'profile', 'wallet_status', 'token_balance', 'mint_quota', 'token_mint'],
+  });
+});
+
+app.get(oauthAuthorizePath, async (req, res) => {
   try {
-    const upstream = await backend('/health');
-    res.json({ ok: true, service: 'eta-ai-mint-mcp', backend: upstream.data, authRequired: requireMcpAuth, remoteMcpPath: '/mcp', frontendPublicUrl });
+    logRequest(req, { authorizeRequest: true });
+    const clientId = String(req.query.client_id || 'claude');
+    const redirectUri = String(req.query.redirect_uri || '');
+    const state = String(req.query.state || '');
+    const scope = String(req.query.scope || 'openid profile wallet_status token_balance mint_quota token_mint');
+    if (!redirectUri || !oauthAllowedRedirects.has(redirectUri)) {
+      return res.status(400).send('Invalid redirect_uri');
+    }
+
+    const backendSessionToken = randomUUID();
+    const backendSession = await ensureBackendAuthSession(backendSessionToken, {
+      aiClient: 'claude',
+      origin: 'oauth-authorize',
+      redirectUri,
+      state,
+      connectorRequestId: clientId,
+    });
+
+    const grant = await createGrant({ clientId, redirectUri, state, scope, backendSessionToken, backendSessionId: backendSession.session_id });
+    const authorizeUrl = new URL(`${frontendPublicUrl}/oauth/authorize`);
+    authorizeUrl.searchParams.set('session', backendSession.session_id);
+    authorizeUrl.searchParams.set('grant', grant.id);
+    authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+    authorizeUrl.searchParams.set('state', state);
+    authorizeUrl.searchParams.set('client_id', clientId);
+    authorizeUrl.searchParams.set('mcp_origin', mcpPublicUrl);
+    return res.redirect(authorizeUrl.toString());
   } catch (error) {
-    res.status(500).json({ ok: false, error: { code: 'backend_unavailable', message: error.message || 'backend unavailable' } });
+    console.error('OAuth authorize error:', error);
+    return res.status(500).send('Authorization setup failed');
   }
 });
 
-app.use(mcpAuthMiddleware);
+app.get(oauthApprovePath, async (req, res) => {
+  try {
+    const grantId = String(req.query.grant || '');
+    const sessionId = String(req.query.session || '');
+    if (!grantId || !sessionId) return res.status(400).send('Missing grant or session');
+    const db = await readOauthDb();
+    const grant = db.grants.find((item) => item.id === grantId);
+    if (!grant) return res.status(404).send('Grant not found or expired');
+    if (grant.backend_session_id !== sessionId) return res.status(400).send('Grant/session mismatch');
+
+    const code = `code_${randomSecret(18)}`;
+    await updateGrant(grantId, { code, approved_at: nowIso() });
+    const redirectUrl = new URL(grant.redirect_uri);
+    redirectUrl.searchParams.set('code', code);
+    if (grant.state) redirectUrl.searchParams.set('state', grant.state);
+    return res.redirect(redirectUrl.toString());
+  } catch (error) {
+    console.error('OAuth approve error:', error);
+    return res.status(500).send('Approval failed');
+  }
+});
+
+app.post(oauthTokenPath, async (req, res) => {
+  try {
+    logRequest(req, { tokenExchange: true });
+    const grantType = String(req.body.grant_type || '');
+    const code = String(req.body.code || '');
+    const redirectUri = String(req.body.redirect_uri || '');
+    if (grantType !== 'authorization_code') return res.status(400).json({ error: 'unsupported_grant_type' });
+    if (!code) return res.status(400).json({ error: 'invalid_request', error_description: 'Missing code' });
+
+    const grant = await findGrantByCode(code);
+    if (!grant) return res.status(400).json({ error: 'invalid_grant' });
+    if (grant.redirect_uri !== redirectUri) return res.status(400).json({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' });
+    if (grant.consumed_at) return res.status(400).json({ error: 'invalid_grant', error_description: 'code already used' });
+
+    const token = await createAccessToken({
+      clientId: grant.client_id,
+      backendSessionToken: grant.backend_session_id,
+      backendSessionId: grant.backend_session_id,
+      scope: grant.scope,
+    });
+    await updateGrant(grant.id, { consumed_at: nowIso() });
+
+    return res.json({
+      access_token: token.raw,
+      token_type: 'Bearer',
+      expires_in: Math.floor(oauthAccessTokenTtlMs / 1000),
+      scope: grant.scope,
+    });
+  } catch (error) {
+    console.error('OAuth token error:', error);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
 
 app.get('/tools', (_req, res) => {
   res.json({
     ok: true,
+    warning: mcpDevOpen ? 'MCP_DEV_OPEN=true is enabled. This should not be used in production.' : undefined,
     tools: [
       { name: 'authorization_status', description: 'Check whether the linked wallet is actively delegated to the configured MintDelegate.', input: {} },
       { name: 'mint_quota_get', description: 'Get remaining wallet mint quota for the linked wallet.', input: {} },
@@ -243,63 +493,60 @@ app.get('/tools', (_req, res) => {
 });
 
 app.post('/mcp', async (req, res) => {
-  const sessionId = req.headers['mcp-session-id'];
   try {
-    let transport = sessionId ? transports[sessionId] : null;
+    const access = await resolveMcpAccess(req);
+    console.log(JSON.stringify({ at: nowIso(), event: 'mcp-request-auth', hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
+    if (!access.ok) {
+      return res.status(access.status || 401).json({ jsonrpc: '2.0', error: { code: -32001, message: access.message }, id: req.body?.id ?? null });
+    }
 
+    const sessionId = req.headers['mcp-session-id'];
+    const initialize = isInitializeRequest(req.body);
+    const shouldAllowFresh = initialize || mcpDevOpen;
+    const sessionToken = access.sessionToken;
+
+    let transport = sessionId ? transports[sessionId] : transports[sessionToken];
     if (!transport) {
-      if (sessionId || !isInitializeRequest(req.body)) {
-        res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: No valid session ID provided' }, id: null });
-        return;
+      if (sessionId && !shouldAllowFresh) {
+        return res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: No valid session ID provided' }, id: req.body?.id ?? null });
       }
-
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: async (newSessionId) => {
-          transports[newSessionId] = transport;
-          await ensureBackendAuthSession(newSessionId, { aiClient: 'mcp', origin: 'streamable-http' });
-        },
-      });
-
-      transport.onclose = () => {
-        const sid = transport.sessionId;
-        if (sid && transports[sid]) delete transports[sid];
-      };
-
-      const server = getMcpServer({ getSessionToken: () => transport.sessionId });
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-      return;
+      if (!sessionId && !shouldAllowFresh) {
+        return res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: No valid session ID provided' }, id: req.body?.id ?? null });
+      }
+      transport = await ensureTransport(sessionToken, { aiClient: access.mode === 'oauth-token' ? 'claude' : 'mcp', origin: access.mode || 'mcp' });
     }
 
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error('Error handling MCP request:', error);
     if (!res.headersSent) {
-      res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: error?.message || 'Internal server error' }, id: null });
+      res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: error?.message || 'Internal server error' }, id: req.body?.id ?? null });
     }
   }
 });
 
 app.get('/mcp', async (req, res) => {
+  const access = await resolveMcpAccess(req);
+  console.log(JSON.stringify({ at: nowIso(), event: 'mcp-sse-auth', hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
+  if (!access.ok) return res.status(access.status || 401).send(access.message || 'Unauthorized');
   const sessionId = req.headers['mcp-session-id'];
   if (!sessionId || !transports[sessionId]) {
-    res.status(400).send('Invalid or missing session ID');
-    return;
+    if (mcpDevOpen) return res.status(200).send('MCP dev open ready; initialize with POST /mcp');
+    return res.status(400).send('Invalid or missing session ID');
   }
   await transports[sessionId].handleRequest(req, res);
 });
 
 app.delete('/mcp', async (req, res) => {
+  const access = await resolveMcpAccess(req);
+  if (!access.ok) return res.status(access.status || 401).send(access.message || 'Unauthorized');
   const sessionId = req.headers['mcp-session-id'];
-  if (!sessionId || !transports[sessionId]) {
-    res.status(400).send('Invalid or missing session ID');
-    return;
-  }
+  if (!sessionId || !transports[sessionId]) return res.status(400).send('Invalid or missing session ID');
   await transports[sessionId].handleRequest(req, res);
 });
 
 const port = Number(process.env.PORT || 3002);
 app.listen(port, () => {
   console.log(`eta-ai-mint-mcp listening on :${port} -> ${backendUrl} (remote MCP at /mcp)`);
+  if (mcpDevOpen) console.warn('WARNING: MCP_DEV_OPEN=true is enabled. Do not use this in production.');
 });
