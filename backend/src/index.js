@@ -8,6 +8,7 @@ import {
   createWalletClient,
   encodeFunctionData,
   formatEther,
+  formatUnits,
   getAddress,
   http,
   isAddress,
@@ -49,6 +50,7 @@ const tokenAbi = parseAbi([
   'function name() view returns (string)',
   'function symbol() view returns (string)',
   'function balanceOf(address) view returns (uint256)',
+  'function decimals() view returns (uint8)',
   'function quota(address) view returns (uint256)',
   'function remaining() view returns (uint256)',
   'function totalMints() view returns (uint256)',
@@ -309,9 +311,10 @@ function buildSiweMessage({ walletAddress, sessionId, nonce }) {
 }
 
 async function getTokenInfo() {
-  const [name, symbol, mintAmount, maxTotalMints, maxPerWallet, remaining, totalMints] = await Promise.all([
+  const [name, symbol, decimals, mintAmount, maxTotalMints, maxPerWallet, remaining, totalMints] = await Promise.all([
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'name' }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'symbol' }),
+    publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'decimals' }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'MINT_AMOUNT' }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'MAX_TOTAL_MINTS' }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'MAX_PER_WALLET' }),
@@ -328,6 +331,7 @@ async function getTokenInfo() {
     mintPriceEth: formatEther(mintPriceWei),
     name,
     symbol,
+    decimals,
     mintAmount: mintAmount.toString(),
     maxTotalMints: maxTotalMints.toString(),
     maxPerWallet: maxPerWallet.toString(),
@@ -338,19 +342,29 @@ async function getTokenInfo() {
 
 async function getWalletStatus(wallet) {
   const address = getAddress(wallet);
-  const [delegated, quotaRemaining, tokenBalance, mintsOf, ethBalance] = await Promise.all([
+  const [delegated, quotaRemaining, tokenBalance, mintsOf, ethBalance, decimals, symbol] = await Promise.all([
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'isDelegatedToMintDelegate', args: [address] }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'quota', args: [address] }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'balanceOf', args: [address] }),
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'mintsOf', args: [address] }),
     publicClient.getBalance({ address }),
+    publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'decimals' }),
+    publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'symbol' }),
   ]);
+
+  const formattedBalance = formatUnits(tokenBalance, decimals);
+  const displayBalance = `${Number(formattedBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${symbol}`;
 
   return {
     wallet: address,
     delegated,
     quotaRemaining: quotaRemaining.toString(),
     tokenBalance: tokenBalance.toString(),
+    rawBalance: tokenBalance.toString(),
+    tokenDecimals: decimals,
+    formattedBalance,
+    displayBalance,
+    symbol,
     mintsOf: mintsOf.toString(),
     ethBalanceWei: ethBalance.toString(),
     ethBalanceEth: formatEther(ethBalance),

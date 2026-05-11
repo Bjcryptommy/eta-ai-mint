@@ -352,7 +352,7 @@ function getMcpServer({ getSessionToken, getBearerTokenForTool }) {
       network: snapshot?.chainId === 11155111 ? 'Sepolia' : `Chain ${snapshot?.chainId ?? 'unknown'}`,
       chainId: snapshot?.chainId,
     };
-    return { content: textContent(`Wallet ${enriched.wallet}: ${enriched.network}, signed=${enriched.signed}, delegated=${enriched.delegated}, quota=${enriched.quotaRemaining}, balance=${enriched.tokenBalance}.`), structuredContent: enriched };
+    return { content: textContent(`Wallet ${enriched.wallet}: ${enriched.network}, signed=${enriched.signed}, delegated=${enriched.delegated}, quota=${enriched.quotaRemaining}, balance=${enriched.displayBalance || enriched.formattedBalance || enriched.tokenBalance}.`), structuredContent: enriched };
   }));
 
   server.registerTool('authorization_status', { description: 'Check whether the wallet linked to this CATSHIT session is delegated to the configured MintDelegate.', inputSchema: {} }, async () => runSessionTool('authorization_status', getBearerTokenForTool(), async ({ sessionToken }) => {
@@ -373,7 +373,7 @@ function getMcpServer({ getSessionToken, getBearerTokenForTool }) {
     const upstream = await backendSessionTool('/session/token-balance', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
-    return { content: textContent(`${payload.wallet} holds ${payload.tokenBalance} token units and has minted ${payload.mintsOf} slot(s).`), structuredContent: payload };
+    return { content: textContent(`${payload.wallet} holds ${payload.displayBalance || payload.formattedBalance || payload.tokenBalance} and has minted ${payload.mintsOf} slot(s).`), structuredContent: payload };
   }));
 
   server.registerTool('token_mint', { description: 'Mint one or more slots for the wallet linked to this CATSHIT session. The receiver is always the linked wallet, never a prompt-supplied address.', inputSchema: { slots: z.number().int().min(1).optional().describe('Number of slots to mint.'), wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.') } }, async ({ wallet, slots }) => runSessionTool('token_mint', getBearerTokenForTool(), async ({ sessionToken }) => {
