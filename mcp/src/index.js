@@ -59,7 +59,7 @@ function logRequest(req, extra = {}) {
     query: req.query,
     hasAuthorizationHeader: Boolean(req.headers.authorization),
     sessionIdFound: Boolean(req.headers['mcp-session-id']),
-    mcpInitializeRequest: req.path === '/mcp' && req.method === 'POST' && req.body?.method === 'initialize',
+    mcpInitializeRequest: (req.path === '/mcp' || req.path === '/') && req.method === 'POST' && req.body?.method === 'initialize',
     ...extra,
   }));
 }
@@ -466,12 +466,13 @@ function oauthMetadataPayload() {
   };
 }
 
-function protectedResourcePayload() {
+function protectedResourcePayload(resource = `${mcpPublicUrl}/mcp`) {
   return {
-    resource: `${mcpPublicUrl}/mcp`,
+    resource,
     authorization_servers: [mcpPublicUrl],
     bearer_methods_supported: ['header'],
     scopes_supported: ['openid', 'profile', 'wallet_status', 'token_balance', 'mint_quota', 'token_mint'],
+    resource_aliases: [mcpPublicUrl, `${mcpPublicUrl}/mcp`],
   };
 }
 
@@ -487,12 +488,12 @@ app.get('/mcp/.well-known/oauth-authorization-server', (req, res) => {
 
 app.get(protectedResourcePath, (req, res) => {
   logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true, event: 'protected-resource-metadata-served' });
-  res.json(protectedResourcePayload());
+  res.json(protectedResourcePayload(mcpPublicUrl));
 });
 
 app.get('/mcp/.well-known/oauth-protected-resource', (req, res) => {
   logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true, underMcpPath: true, event: 'protected-resource-metadata-served' });
-  res.json(protectedResourcePayload());
+  res.json(protectedResourcePayload(`${mcpPublicUrl}/mcp`));
 });
 
 app.get(oauthAuthorizePath, async (req, res) => {
@@ -639,10 +640,10 @@ app.get('/tools', (_req, res) => {
   });
 });
 
-app.post('/mcp', async (req, res) => {
+async function handleMcpPost(req, res) {
   try {
     const access = await resolveMcpAccess(req);
-    console.log(JSON.stringify({ at: nowIso(), event: 'mcp-request-auth', hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
+    console.log(JSON.stringify({ at: nowIso(), event: 'mcp-request-auth', path: req.path, hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
     if (!access.ok) {
       if ((req.body?.method === 'initialize' || !req.body) && requireMcpAuth) {
         return sendOAuthChallenge(res, { scope: 'openid profile wallet_status token_balance mint_quota token_mint' });
@@ -674,27 +675,34 @@ app.post('/mcp', async (req, res) => {
       res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: error?.message || 'Internal server error' }, id: req.body?.id ?? null });
     }
   }
-});
+}
 
-app.get('/mcp', async (req, res) => {
+async function handleMcpGet(req, res) {
   const access = await resolveMcpAccess(req);
-  console.log(JSON.stringify({ at: nowIso(), event: 'mcp-sse-auth', hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
+  console.log(JSON.stringify({ at: nowIso(), event: 'mcp-sse-auth', path: req.path, hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
   if (!access.ok) return sendOAuthChallenge(res, { scope: 'openid profile wallet_status token_balance mint_quota token_mint' });
   const sessionId = req.headers['mcp-session-id'];
   if (!sessionId || !transports[sessionId]) {
-    if (mcpDevOpen) return res.status(200).send('MCP dev open ready; initialize with POST /mcp');
+    if (mcpDevOpen) return res.status(200).send('MCP dev open ready; initialize with POST / or /mcp');
     return res.status(400).send('Invalid or missing session ID');
   }
   await transports[sessionId].handleRequest(req, res);
-});
+}
 
-app.delete('/mcp', async (req, res) => {
+async function handleMcpDelete(req, res) {
   const access = await resolveMcpAccess(req);
   if (!access.ok) return res.status(access.status || 401).send(access.message || 'Unauthorized');
   const sessionId = req.headers['mcp-session-id'];
   if (!sessionId || !transports[sessionId]) return res.status(400).send('Invalid or missing session ID');
   await transports[sessionId].handleRequest(req, res);
-});
+}
+
+app.post('/mcp', handleMcpPost);
+app.post('/', handleMcpPost);
+app.get('/mcp', handleMcpGet);
+app.get('/', handleMcpGet);
+app.delete('/mcp', handleMcpDelete);
+app.delete('/', handleMcpDelete);
 
 const port = Number(process.env.PORT || 3002);
 app.listen(port, () => {
