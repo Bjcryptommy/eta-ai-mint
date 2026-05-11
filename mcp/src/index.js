@@ -39,6 +39,10 @@ function sha256(value) {
   return createHash('sha256').update(String(value)).digest('hex');
 }
 
+function base64urlSha256(value) {
+  return createHash('sha256').update(String(value)).digest('base64url');
+}
+
 function randomSecret(size = 24) {
   return randomBytes(size).toString('base64url');
 }
@@ -131,7 +135,7 @@ function pruneOauthDb(db) {
   db.tokens = db.tokens.filter((token) => new Date(token.expires_at).getTime() > now && !token.revoked_at);
 }
 
-async function createGrant({ clientId, redirectUri, state, scope, backendSessionToken, backendSessionId }) {
+async function createGrant({ clientId, redirectUri, state, scope, backendSessionToken, backendSessionId, codeChallenge = null, codeChallengeMethod = null }) {
   const grant = {
     id: randomUUID(),
     client_id: clientId,
@@ -142,8 +146,8 @@ async function createGrant({ clientId, redirectUri, state, scope, backendSession
     backend_session_token_hash: sha256(backendSessionToken),
     backend_session_id: backendSessionId,
     code: null,
-    code_challenge: null,
-    code_challenge_method: null,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod,
     approved_at: null,
     consumed_at: null,
     created_at: nowIso(),
@@ -386,10 +390,11 @@ function oauthMetadataPayload() {
     issuer: mcpPublicUrl,
     authorization_endpoint: `${mcpPublicUrl}${oauthAuthorizePath}`,
     token_endpoint: `${mcpPublicUrl}${oauthTokenPath}`,
+    registration_endpoint: `${mcpPublicUrl}${oauthTokenPath}/register`,
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code'],
-    token_endpoint_auth_methods_supported: ['none'],
-    code_challenge_methods_supported: ['plain'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
+    code_challenge_methods_supported: ['S256', 'plain'],
   };
 }
 
@@ -403,22 +408,22 @@ function protectedResourcePayload() {
 }
 
 app.get(oauthMetadataPath, (req, res) => {
-  logRequest(req, { discoveryRequest: true });
+  logRequest(req, { discoveryRequest: true, event: 'authorization-metadata-served' });
   res.json(oauthMetadataPayload());
 });
 
 app.get('/mcp/.well-known/oauth-authorization-server', (req, res) => {
-  logRequest(req, { discoveryRequest: true, underMcpPath: true });
+  logRequest(req, { discoveryRequest: true, underMcpPath: true, event: 'authorization-metadata-served' });
   res.json(oauthMetadataPayload());
 });
 
 app.get(protectedResourcePath, (req, res) => {
-  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true });
+  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true, event: 'protected-resource-metadata-served' });
   res.json(protectedResourcePayload());
 });
 
 app.get('/mcp/.well-known/oauth-protected-resource', (req, res) => {
-  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true, underMcpPath: true });
+  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true, underMcpPath: true, event: 'protected-resource-metadata-served' });
   res.json(protectedResourcePayload());
 });
 
@@ -429,6 +434,8 @@ app.get(oauthAuthorizePath, async (req, res) => {
     const redirectUri = String(req.query.redirect_uri || '');
     const state = String(req.query.state || '');
     const scope = String(req.query.scope || 'openid profile wallet_status token_balance mint_quota token_mint');
+    const codeChallenge = req.query.code_challenge ? String(req.query.code_challenge) : null;
+    const codeChallengeMethod = req.query.code_challenge_method ? String(req.query.code_challenge_method) : null;
     if (!redirectUri || !oauthAllowedRedirects.has(redirectUri)) {
       return res.status(400).send('Invalid redirect_uri');
     }
@@ -442,7 +449,15 @@ app.get(oauthAuthorizePath, async (req, res) => {
       connectorRequestId: clientId,
     });
 
-    const grant = await createGrant({ clientId, redirectUri, state, scope, backendSessionToken, backendSessionId: backendSession.session_id });
+    if (codeChallengeMethod && !['S256', 'plain'].includes(codeChallengeMethod)) {
+      return res.status(400).send('Unsupported code_challenge_method');
+    }
+    if (codeChallengeMethod && !codeChallenge) {
+      return res.status(400).send('Missing code_challenge');
+    }
+
+    logRequest(req, { authorizeRequest: true, pkceMethod: codeChallengeMethod || null });
+    const grant = await createGrant({ clientId, redirectUri, state, scope, backendSessionToken, backendSessionId: backendSession.session_id, codeChallenge, codeChallengeMethod });
     const authorizeUrl = new URL(`${frontendPublicUrl}/oauth/authorize`);
     authorizeUrl.searchParams.set('session', backendSession.session_id);
     authorizeUrl.searchParams.set('grant', grant.id);
@@ -481,10 +496,11 @@ app.get(oauthApprovePath, async (req, res) => {
 
 app.post(oauthTokenPath, async (req, res) => {
   try {
-    logRequest(req, { tokenExchange: true });
     const grantType = String(req.body.grant_type || '');
     const code = String(req.body.code || '');
     const redirectUri = String(req.body.redirect_uri || '');
+    const codeVerifier = req.body.code_verifier ? String(req.body.code_verifier) : null;
+    logRequest(req, { tokenRequestReceived: true, pkceMethod: req.body.code_challenge_method || null });
     if (grantType !== 'authorization_code') return res.status(400).json({ error: 'unsupported_grant_type' });
     if (!code) return res.status(400).json({ error: 'invalid_request', error_description: 'Missing code' });
 
@@ -492,6 +508,17 @@ app.post(oauthTokenPath, async (req, res) => {
     if (!grant) return res.status(400).json({ error: 'invalid_grant' });
     if (grant.redirect_uri !== redirectUri) return res.status(400).json({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' });
     if (grant.consumed_at) return res.status(400).json({ error: 'invalid_grant', error_description: 'code already used' });
+    if (grant.code_challenge_method) {
+      if (!codeVerifier) {
+        console.log(JSON.stringify({ at: nowIso(), event: 'token-issued', issued: false, reason: 'missing_code_verifier', pkceMethod: grant.code_challenge_method }));
+        return res.status(400).json({ error: 'invalid_request', error_description: 'Missing code_verifier' });
+      }
+      const expected = grant.code_challenge_method === 'S256' ? base64urlSha256(codeVerifier) : codeVerifier;
+      if (expected !== grant.code_challenge) {
+        console.log(JSON.stringify({ at: nowIso(), event: 'token-issued', issued: false, reason: 'pkce_verification_failed', pkceMethod: grant.code_challenge_method }));
+        return res.status(400).json({ error: 'invalid_grant', error_description: 'PKCE verification failed' });
+      }
+    }
 
     const token = await createAccessToken({
       clientId: grant.client_id,
@@ -501,6 +528,7 @@ app.post(oauthTokenPath, async (req, res) => {
     });
     await updateGrant(grant.id, { consumed_at: nowIso() });
 
+    console.log(JSON.stringify({ at: nowIso(), event: 'token-issued', issued: true, pkceMethod: grant.code_challenge_method || null }));
     return res.json({
       access_token: token.raw,
       token_type: 'Bearer',
@@ -511,6 +539,19 @@ app.post(oauthTokenPath, async (req, res) => {
     console.error('OAuth token error:', error);
     return res.status(500).json({ error: 'server_error' });
   }
+});
+
+app.post(`${oauthTokenPath}/register`, (req, res) => {
+  logRequest(req, { event: 'client-registration-request' });
+  const clientId = String(req.body.client_id || 'claude');
+  return res.json({
+    client_id: clientId,
+    client_id_issued_at: Math.floor(Date.now() / 1000),
+    token_endpoint_auth_method: 'none',
+    grant_types: ['authorization_code'],
+    response_types: ['code'],
+    redirect_uris: [...oauthAllowedRedirects],
+  });
 });
 
 app.get('/tools', (_req, res) => {
