@@ -10,7 +10,7 @@ export default function ConnectPage() {
         <div className="space-y-4">
           <SectionLabel tone="mint">CONNECT CLAUDE</SectionLabel>
           <h1 className="display-text text-[clamp(3.8rem,9vw,6rem)] leading-[0.9] text-fog">Connect CATSHIT to Claude</h1>
-          <p className="text-lg font-semibold text-mint">Add CATSHIT as a Claude connector, link your wallet once, then mint directly from Claude.</p>
+          <p className="text-lg font-semibold text-mint">Add CATSHIT as a Claude connector, link your wallet once, then mint directly from Claude. 🐱</p>
           <p className="max-w-3xl text-base leading-7 text-fog/82">CATSHIT lets Claude check your wallet status, read your mint quota, and request mints through your approved wallet session. Your private key is never exposed.</p>
           <div className="flex flex-wrap gap-3">
             <BrutalButton href="https://claude.ai/settings/connectors?connectorName=CATSHIT&connectorUrl=https%3A%2F%2Fmcp.catshit.meme&modal=add-custom-connector" tone="mint">Connect to Claude</BrutalButton>

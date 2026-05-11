@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import { useAccount, useChainId, useConnect, useDisconnect } from 'wagmi';
@@ -20,6 +21,16 @@ type Props = {
 
 type DetectedProvider = { name: string; rdns?: string };
 const DEV_LOGS = process.env.NODE_ENV !== 'production';
+
+function walletDisplay(connector: { id?: string; name: string }) {
+  if (connector.id === 'catshit-wallet' || /catshit/i.test(connector.name)) {
+    return { name: 'CATSHIT Wallet', icon: '/assets/catshitlogo.png', alt: 'CATSHIT Wallet logo' };
+  }
+  if (/meta/i.test(connector.name)) {
+    return { name: 'MetaMask', icon: '/assets/metamask-fox.svg', alt: 'MetaMask fox logo' };
+  }
+  return { name: connector.name, icon: '', alt: connector.name };
+}
 
 export function WalletConnectAction({ label = 'connect wallet', className, tone = 'mint' }: Props) {
   const { address, isConnected } = useAccount();
@@ -115,12 +126,12 @@ export function WalletConnectAction({ label = 'connect wallet', className, tone 
       : 'bg-mint text-ink border-ink shadow-[4px_4px_0_#0b1020]';
 
   return (
-    <div className="relative inline-flex">
+    <div className="relative inline-flex max-w-full">
       <button
         ref={triggerRef}
         type="button"
         onClick={() => isConnected ? setShowMenu((value) => !value) : setOpen(true)}
-        className={clsx('brutal-hover inline-flex items-center justify-center gap-2 rounded-2xl border-[3px] px-4 py-3 text-sm font-black uppercase tracking-wide', toneClass, className)}
+        className={clsx('brutal-hover inline-flex max-w-full items-center justify-center gap-2 rounded-2xl border-[3px] px-4 py-3 text-sm font-black uppercase tracking-wide', toneClass, className)}
       >
         {isConnected && address ? `${address.slice(0, 6)}…${address.slice(-4)}` : label}
       </button>
@@ -150,23 +161,32 @@ export function WalletConnectAction({ label = 'connect wallet', className, tone 
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={() => setOpen(false)}>
           <div className="w-full max-w-sm rounded-[24px] border-[3px] border-mint bg-ink-2 p-4 text-fog shadow-[8px_8px_0_#00f5d4]" onClick={(e) => e.stopPropagation()}>
             <div className="display-text text-3xl leading-none">CONNECT WALLET</div>
-            <div className="mt-2 text-sm text-fog/75">Choose CATSHIT Wallet first for the EIP-7702 flow.</div>
+            <div className="mt-2 text-sm text-fog/75">Choose CATSHIT Wallet first for the EIP-7702 flow. 🐾</div>
             <div className="mt-4 grid gap-3">
-              {sortedConnectors.map((connector, index) => (
-                <button
-                  key={`${connector.id}-${connector.name}-${index}`}
-                  type="button"
-                  className="rounded-2xl border-[3px] border-mint bg-panel px-4 py-3 text-left text-sm font-black uppercase tracking-wide text-fog"
-                  onClick={() => {
-                    if (DEV_LOGS) console.info('[catshit-site][wallets] selected provider', { id: connector.id, name: connector.name });
-                    connect({ connector });
-                    setOpen(false);
-                  }}
-                >
-                  {connector.name}
-                  {isPending && variables?.connector?.name === connector.name ? ' …' : ''}
-                </button>
-              ))}
+              {sortedConnectors.map((connector, index) => {
+                const display = walletDisplay(connector);
+                return (
+                  <button
+                    key={`${connector.id}-${connector.name}-${index}`}
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl border-[3px] border-mint bg-panel px-4 py-3 text-left text-sm font-black uppercase tracking-wide text-fog"
+                    onClick={() => {
+                      if (DEV_LOGS) console.info('[catshit-site][wallets] selected provider', { id: connector.id, name: connector.name });
+                      connect({ connector });
+                      setOpen(false);
+                    }}
+                  >
+                    {display.icon ? (
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[2px] border-mint/40 bg-fog/5 p-1">
+                        <Image src={display.icon} alt={display.alt} width={24} height={24} className="h-6 w-6 object-contain" />
+                      </span>
+                    ) : (
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-[2px] border-mint/40 bg-fog/5 text-base">👛</span>
+                    )}
+                    <span className="min-w-0 flex-1">{display.name}{isPending && variables?.connector?.name === connector.name ? ' …' : ''}</span>
+                  </button>
+                );
+              })}
             </div>
             {!detected.some((item) => /catshit/i.test(item.name) || item.rdns === 'com.catshit.wallet') && !hasCatshitFallback ? (
               <div className="mt-4 rounded-2xl border-[2px] border-fog/30 bg-panel p-3 text-xs text-fog/80">

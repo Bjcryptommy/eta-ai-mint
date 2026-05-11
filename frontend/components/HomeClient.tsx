@@ -43,7 +43,7 @@ export function HomeClient({ initialTokenInfo }: { initialTokenInfo: TokenInfo |
         <div className="grid gap-6 lg:grid-cols-[1.2fr,0.8fr] lg:items-start">
           <div>
             <h1 className="display-text text-[clamp(4rem,10vw,7rem)] leading-[0.9] text-fog">MINT <HighlightText tone="mint">$CATSHIT</HighlightText><br />THROUGH <HighlightText tone="mint">CLAUDE</HighlightText></h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-mint md:text-lg">One wallet signature. Claude can mint through your approved session.</p>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-mint md:text-lg">One wallet signature. Claude can mint through your approved session. 🐾</p>
             <p className="mt-4 max-w-3xl text-[15px] leading-8 text-fog/84 md:text-base">Add CATSHIT to Claude, link your wallet once, and let Claude check your quota or request a mint. Your private key is never exposed.</p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <BrutalButton href="/connect" tone="mint">Connect to Claude</BrutalButton>

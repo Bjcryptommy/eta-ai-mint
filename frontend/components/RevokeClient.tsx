@@ -90,7 +90,7 @@ export function RevokeClient() {
       <div className="space-y-4">
         <SectionLabel tone="danger">ESCAPE HATCH</SectionLabel>
         <div className="display-text text-[clamp(3.8rem,9vw,6rem)] leading-[0.88]">Revoke Delegation</div>
-        <p className="max-w-3xl text-base leading-7">Turn off Claude minting access for your wallet. This points your EIP-7702 authorization back to the zero address. You stay in control.</p>
+        <p className="max-w-3xl text-base leading-7">Turn off Claude minting access for your wallet. This points your EIP-7702 authorization back to the zero address. Escape hatch ready. You stay in control. 🐾</p>
         <div className="flex flex-wrap gap-3">
           <BrutalButton href="/#status" tone="gold">Wallet Status</BrutalButton>
           <BrutalButton tone="danger" onClick={handleRevoke} disabled={pending || loading || !delegated}>{pending ? 'Revoking…' : loading ? 'Checking…' : delegated ? 'Revoke Delegation' : 'Already Revoked'}</BrutalButton>

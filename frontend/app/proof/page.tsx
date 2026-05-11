@@ -39,6 +39,7 @@ export default async function ProofPage() {
           </BrutalCard>
           <BrutalCard tone="black">
             <div className="display-text text-4xl leading-none text-mint">Every Mint Has a Transaction</div>
+            <p className="mt-3 text-sm leading-7 text-fog/80">No hidden litter box. 💩</p>
             <div className="mt-5 space-y-3 text-sm leading-7 text-fog/92">
               <div>• No presale</div>
               <div>• Team allocation, if any, is disclosed</div>

@@ -237,7 +237,7 @@ export default function OauthAuthorizeClient() {
         <BrutalCard tone="dark" className="space-y-5">
           <div>
             <div className="display-text text-5xl leading-none">Approve Claude Access</div>
-            <p className="mt-4 text-sm leading-7 opacity-85">Connect your wallet, sign once to link this Claude session, then approve access.</p>
+            <p className="mt-4 text-sm leading-7 opacity-85">Connect your wallet, sign once to link this Claude session, then approve access. 🐾</p>
           </div>
 
           <InfoBox title="requested access" tone="black">

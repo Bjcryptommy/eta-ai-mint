@@ -22,7 +22,9 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 border-b-[3px] border-mint bg-ink-2/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1050px] flex-wrap items-center justify-between gap-4 px-4 py-3 md:px-6">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border-[3px] border-mint bg-panel text-xl font-black text-mint shadow-[4px_4px_0_#00f5d4]">🐈‍⬛</div>
+          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border-[3px] border-mint bg-panel shadow-[4px_4px_0_#00f5d4]">
+            <Image src="/assets/catshitlogo.png" alt="CATSHIT logo" width={48} height={48} className="h-full w-full object-cover" priority />
+          </div>
           <div>
             <div className="display-text text-3xl leading-none text-fog">CATSHIT</div>
             <div className="mono-ui text-[11px] font-bold uppercase tracking-[0.24em] text-mint">$catshit</div>
