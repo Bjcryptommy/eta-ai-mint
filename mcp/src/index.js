@@ -341,7 +341,7 @@ function getMcpServer({ getSessionToken, getBearerTokenForTool }) {
     return { content: textContent(`${payload.name} (${payload.symbol}) mint price is ${payload.mintPriceEth} ETH and ${payload.remaining} public mints remain.`), structuredContent: payload };
   });
 
-  server.registerTool('wallet_status', { description: 'Get the linked wallet status for this CATSHIT connector session. If no wallet is linked yet, return the connect link.', inputSchema: {} }, async () => runSessionTool('wallet_status', getBearerTokenForTool(), async ({ sessionToken, snapshot }) => {
+  server.registerTool('wallet_status', { description: 'Get the linked wallet status for this CATSHIT connector session. If no wallet is linked yet, return the connect link. Includes the most recent mint transaction when available.', inputSchema: {} }, async () => runSessionTool('wallet_status', getBearerTokenForTool(), async ({ sessionToken, snapshot }) => {
     const upstream = await backendSessionTool('/session/wallet-status', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
@@ -351,6 +351,9 @@ function getMcpServer({ getSessionToken, getBearerTokenForTool }) {
       canMint: Boolean(payload.delegated && BigInt(payload.quotaRemaining || '0') > 0n),
       network: snapshot?.chainId === 11155111 ? 'Sepolia' : `Chain ${snapshot?.chainId ?? 'unknown'}`,
       chainId: snapshot?.chainId,
+      lastMintTxHash: payload.lastMintTxHash || snapshot?.backendSession?.lastMintTxHash || null,
+      lastMintAt: payload.lastMintAt || snapshot?.backendSession?.lastMintAt || null,
+      lastMintAmount: payload.lastMintAmount || snapshot?.backendSession?.lastMintAmount || null,
     };
     return { content: textContent(`Wallet ${enriched.wallet}: ${enriched.network}, signed=${enriched.signed}, delegated=${enriched.delegated}, quota=${enriched.quotaRemaining}, balance=${enriched.displayBalance || enriched.formattedBalance || enriched.tokenBalance}.`), structuredContent: enriched };
   }));
@@ -376,17 +379,25 @@ function getMcpServer({ getSessionToken, getBearerTokenForTool }) {
     return { content: textContent(`${payload.wallet} holds ${payload.displayBalance || payload.formattedBalance || payload.tokenBalance} and has minted ${payload.mintsOf} slot(s).`), structuredContent: payload };
   }));
 
-  server.registerTool('token_mint', { description: 'Mint one or more slots for the wallet linked to this CATSHIT session. The receiver is always the linked wallet, never a prompt-supplied address.', inputSchema: { slots: z.number().int().min(1).optional().describe('Number of slots to mint.'), wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.') } }, async ({ wallet, slots }) => runSessionTool('token_mint', getBearerTokenForTool(), async ({ sessionToken }) => {
+  server.registerTool('token_mint', { description: 'Mint one or more slots for the wallet linked to this CATSHIT session. Validates both max per request and remaining quota before minting. The receiver is always the linked wallet, never a prompt-supplied address.', inputSchema: { slots: z.number().int().min(1).optional().describe('Number of slots to mint.'), wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.') } }, async ({ wallet, slots }) => runSessionTool('token_mint', getBearerTokenForTool(), async ({ sessionToken }) => {
     const upstream = await backendSessionTool('/session/mint', sessionToken, { wallet, slots: slots ?? 1 });
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
+    if (!payload.ok) {
+      return { content: textContent(payload.message), structuredContent: payload };
+    }
     return { content: textContent(`Mint successful for ${payload.wallet}. tx=${payload.txHash}. remaining quota=${payload.quotaRemaining}.`), structuredContent: payload };
   }));
 
-  server.registerTool('tx_status', { description: 'Get transaction status, block number, and gas used by transaction hash.', inputSchema: { hash: z.string().describe('Transaction hash.') } }, async ({ hash }) => {
-    const payload = await backendStrict(`/tx-status/${hash}`);
-    return { content: textContent(`Transaction ${payload.txHash} is ${payload.status} in block ${payload.blockNumber}.`), structuredContent: payload };
-  });
+  server.registerTool('tx_status', { description: 'Get transaction status, block number, gas used, and explorer link by transaction hash. If txHash is omitted, the most recent mint transaction for this session is used.', inputSchema: { hash: z.string().optional().describe('Transaction hash. Optional; falls back to the most recent mint tx for this session.') } }, async ({ hash }) => runSessionTool('tx_status', getBearerTokenForTool(), async ({ snapshot }) => {
+    const txHash = hash || snapshot?.backendSession?.lastMintTxHash;
+    if (!txHash) {
+      const payload = { ok: false, message: "I don't have a recent mint transaction for this session. Please provide a transaction hash." };
+      return { content: textContent(payload.message), structuredContent: payload };
+    }
+    const payload = await backendStrict(`/tx-status/${txHash}`);
+    return { content: textContent(`Transaction ${payload.txHash} is ${payload.status} in block ${payload.blockNumber}. Explorer: ${payload.explorerUrl}`), structuredContent: payload };
+  }));
 
   server.registerTool('revoke_info', { description: 'Explain whether the wallet linked to this CATSHIT session is delegated and how revocation should work.', inputSchema: {} }, async () => runSessionTool('revoke_info', getBearerTokenForTool(), async ({ sessionToken }) => {
     const upstream = await backendSessionTool('/session/authorization-status', sessionToken);

@@ -207,6 +207,9 @@ function sanitizeSession(session) {
     connector_request_id: session.connector_request_id,
     redirect_uri: session.redirect_uri,
     state: session.state,
+    lastMintTxHash: session.last_mint_tx_hash || null,
+    lastMintAt: session.last_mint_at || null,
+    lastMintAmount: session.last_mint_amount || null,
     connect_url: connectUrlForSession(session.id),
   };
 }
@@ -276,6 +279,9 @@ async function createOrRefreshAuthSession({ sessionToken, aiClient = 'mcp', scop
       state,
       last_verified_message: null,
       last_signature: null,
+      last_mint_tx_hash: null,
+      last_mint_at: null,
+      last_mint_amount: null,
     };
     db.sessions.push(session);
     return session;
@@ -389,6 +395,23 @@ async function mintForWallet(wallet, slots) {
     publicClient.readContract({ address: tokenAddress, abi: tokenAbi, functionName: 'remaining' }),
   ]);
 
+  const remainingQuota = Number(walletStatus.quotaRemaining);
+  const allowedNow = Math.min(maxMintSlotsPerRequest, remainingQuota);
+
+  if (remainingQuota <= 0) {
+    const error = new Error('You have no mint quota remaining.');
+    error.statusCode = 400;
+    error.payload = { ok: false, requestedAmount: count, maxPerRequest: maxMintSlotsPerRequest, remainingQuota, allowedNow: 0, message: 'You have no mint quota remaining.' };
+    throw error;
+  }
+
+  if (count > allowedNow) {
+    const error = new Error(`You can mint up to ${allowedNow} right now. Your remaining quota is ${remainingQuota} and the max per request is ${maxMintSlotsPerRequest}.`);
+    error.statusCode = 400;
+    error.payload = { ok: false, requestedAmount: count, maxPerRequest: maxMintSlotsPerRequest, remainingQuota, allowedNow, message: `You can mint up to ${allowedNow} right now. Your remaining quota is ${remainingQuota} and the max per request is ${maxMintSlotsPerRequest}.` };
+    throw error;
+  }
+
   if (!walletStatus.delegated) {
     const error = new Error('wallet is not delegated to the configured MintDelegate');
     error.statusCode = 400;
@@ -433,6 +456,7 @@ async function mintForWallet(wallet, slots) {
     feeWei: requiredFee.toString(),
     feeEth: formatEther(requiredFee),
     txHash: hash,
+    explorerUrl: `https://sepolia.etherscan.io/tx/${hash}`,
     blockNumber: receipt.blockNumber.toString(),
     gasUsed: receipt.gasUsed.toString(),
     quotaRemaining: updated.quotaRemaining,
@@ -733,7 +757,7 @@ app.post('/session/wallet-status', async (req, res) => {
   try {
     const ctx = await getSessionContextFromToken(String(req.body?.session_token || req.headers['x-session-token'] || ''));
     if (!ctx.ok) return res.status(ctx.code === 'SESSION_EXPIRED' ? 410 : 428).json(ctx);
-    res.json({ ok: true, session: sanitizeSession(ctx.session), ...(await getWalletStatus(ctx.session.wallet_address)) });
+    res.json({ ok: true, session: sanitizeSession(ctx.session), ...(await getWalletStatus(ctx.session.wallet_address)), lastMintTxHash: ctx.session.last_mint_tx_hash || null, lastMintAt: ctx.session.last_mint_at || null, lastMintAmount: ctx.session.last_mint_amount || null });
   } catch (error) {
     serverError(res, error);
   }
@@ -789,9 +813,20 @@ app.post('/session/mint', async (req, res) => {
     const auth = await getAuthorizationStatus(ctx.session.wallet_address);
     if (!auth.delegated) return res.status(400).json({ ok: false, message: 'linked wallet is not delegated to the configured MintDelegate' });
     const payload = await mintForWallet(ctx.session.wallet_address, req.body?.slots ?? 1);
-    res.json({ ...payload, session: sanitizeSession(ctx.session) });
+    await updateAuthDb((db) => {
+      const target = db.sessions.find((item) => item.id === ctx.session.id);
+      if (target) {
+        target.last_mint_tx_hash = payload.txHash;
+        target.last_mint_at = nowIso();
+        target.last_mint_amount = payload.slotsRequested;
+        target.wallet_address = payload.wallet;
+        target.updated_at = nowIso();
+      }
+    });
+    const refreshed = await findSessionById(ctx.session.id);
+    res.json({ ...payload, session: sanitizeSession(refreshed || ctx.session) });
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ ok: false, message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json(error.payload || { ok: false, message: error.message });
     serverError(res, error);
   }
 });
@@ -840,6 +875,7 @@ app.get('/tx-status/:hash', async (req, res) => {
     res.json({
       ok: true,
       txHash: req.params.hash,
+      explorerUrl: `https://sepolia.etherscan.io/tx/${req.params.hash}`,
       status: receipt.status,
       blockNumber: receipt.blockNumber.toString(),
       gasUsed: receipt.gasUsed.toString(),
@@ -857,7 +893,7 @@ app.post('/mint', async (req, res) => {
     if (!wallet || !isAddress(wallet)) return badRequest(res, 'invalid wallet address');
     res.json(await mintForWallet(wallet, slots));
   } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ ok: false, message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json(error.payload || { ok: false, message: error.message });
     serverError(res, error);
   }
 });
