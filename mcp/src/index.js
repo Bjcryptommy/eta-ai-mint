@@ -29,6 +29,7 @@ const oauthAccessTokenTtlMs = Number(process.env.OAUTH_ACCESS_TOKEN_TTL_MS || 10
 const oauthDbPath = process.env.MCP_OAUTH_DB_PATH || path.resolve(process.cwd(), 'data/oauth-store.json');
 const transports = {};
 const transportServers = {};
+const transportSessionBindings = {};
 
 function nowIso() {
   return new Date().toISOString();
@@ -137,6 +138,7 @@ async function createGrant({ clientId, redirectUri, state, scope, backendSession
     redirect_uri: redirectUri,
     state: state || null,
     scope: scope || 'openid profile',
+    backend_session_token: backendSessionToken,
     backend_session_token_hash: sha256(backendSessionToken),
     backend_session_id: backendSessionId,
     code: null,
@@ -260,7 +262,7 @@ async function resolveMcpAccess(req) {
       return {
         ok: true,
         mode: 'oauth-token',
-        sessionToken: oauthToken.backend_session_id,
+        sessionToken: oauthToken.backend_session_token,
         backendSessionId: oauthToken.backend_session_id,
         oauthToken,
       };
@@ -336,24 +338,31 @@ function getMcpServer({ getSessionToken }) {
 }
 
 async function ensureTransport(sessionToken, meta = {}) {
-  let transport = transports[sessionToken];
-  if (transport) return transport;
+  const existingSessionId = Object.keys(transportSessionBindings).find((key) => transportSessionBindings[key]?.backendSessionToken === sessionToken);
+  if (existingSessionId && transports[existingSessionId]) return transports[existingSessionId];
 
+  let transport;
   transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: async (newSessionId) => {
+      transports[newSessionId] = transport;
+      transportSessionBindings[newSessionId] = { backendSessionToken: sessionToken, meta };
+      await ensureBackendAuthSession(sessionToken, meta);
+    },
   });
 
-  transport.sessionId = sessionToken;
   transport.onclose = () => {
-    if (transports[sessionToken]) delete transports[sessionToken];
-    if (transportServers[sessionToken]) delete transportServers[sessionToken];
+    const sid = transport.sessionId;
+    if (sid && transports[sid]) delete transports[sid];
+    if (sid && transportServers[sid]) delete transportServers[sid];
+    if (sid && transportSessionBindings[sid]) delete transportSessionBindings[sid];
   };
 
-  transports[sessionToken] = transport;
-  const server = getMcpServer({ getSessionToken: () => sessionToken });
-  transportServers[sessionToken] = server;
+  const server = getMcpServer({ getSessionToken: () => {
+    const sid = transport.sessionId;
+    return sid && transportSessionBindings[sid] ? transportSessionBindings[sid].backendSessionToken : sessionToken;
+  } });
   await server.connect(transport);
-  await ensureBackendAuthSession(sessionToken, meta);
   return transport;
 }
 
@@ -361,9 +370,19 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'eta-ai-mint-mcp' });
 });
 
-app.get(oauthMetadataPath, (req, res) => {
-  logRequest(req, { discoveryRequest: true });
-  res.json({
+function sendOAuthChallenge(res, { scope, error } = {}) {
+  const parts = [
+    'Bearer realm="eta-ai-mint-mcp"',
+    `resource_metadata="${mcpPublicUrl}${protectedResourcePath}"`,
+  ];
+  if (scope) parts.push(`scope="${scope}"`);
+  if (error) parts.push(`error="${error}"`);
+  res.setHeader('WWW-Authenticate', parts.join(', '));
+  return res.status(401).json({ ok: false, error: error || 'unauthorized' });
+}
+
+function oauthMetadataPayload() {
+  return {
     issuer: mcpPublicUrl,
     authorization_endpoint: `${mcpPublicUrl}${oauthAuthorizePath}`,
     token_endpoint: `${mcpPublicUrl}${oauthTokenPath}`,
@@ -371,17 +390,36 @@ app.get(oauthMetadataPath, (req, res) => {
     grant_types_supported: ['authorization_code'],
     token_endpoint_auth_methods_supported: ['none'],
     code_challenge_methods_supported: ['plain'],
-  });
-});
+  };
+}
 
-app.get(protectedResourcePath, (req, res) => {
-  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true });
-  res.json({
+function protectedResourcePayload() {
+  return {
     resource: `${mcpPublicUrl}/mcp`,
     authorization_servers: [mcpPublicUrl],
     bearer_methods_supported: ['header'],
     scopes_supported: ['openid', 'profile', 'wallet_status', 'token_balance', 'mint_quota', 'token_mint'],
-  });
+  };
+}
+
+app.get(oauthMetadataPath, (req, res) => {
+  logRequest(req, { discoveryRequest: true });
+  res.json(oauthMetadataPayload());
+});
+
+app.get('/mcp/.well-known/oauth-authorization-server', (req, res) => {
+  logRequest(req, { discoveryRequest: true, underMcpPath: true });
+  res.json(oauthMetadataPayload());
+});
+
+app.get(protectedResourcePath, (req, res) => {
+  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true });
+  res.json(protectedResourcePayload());
+});
+
+app.get('/mcp/.well-known/oauth-protected-resource', (req, res) => {
+  logRequest(req, { discoveryRequest: true, protectedResourceDiscovery: true, underMcpPath: true });
+  res.json(protectedResourcePayload());
 });
 
 app.get(oauthAuthorizePath, async (req, res) => {
@@ -457,7 +495,7 @@ app.post(oauthTokenPath, async (req, res) => {
 
     const token = await createAccessToken({
       clientId: grant.client_id,
-      backendSessionToken: grant.backend_session_id,
+      backendSessionToken: grant.backend_session_token,
       backendSessionId: grant.backend_session_id,
       scope: grant.scope,
     });
@@ -497,6 +535,9 @@ app.post('/mcp', async (req, res) => {
     const access = await resolveMcpAccess(req);
     console.log(JSON.stringify({ at: nowIso(), event: 'mcp-request-auth', hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
     if (!access.ok) {
+      if ((req.body?.method === 'initialize' || !req.body) && requireMcpAuth) {
+        return sendOAuthChallenge(res, { scope: 'openid profile wallet_status token_balance mint_quota token_mint' });
+      }
       return res.status(access.status || 401).json({ jsonrpc: '2.0', error: { code: -32001, message: access.message }, id: req.body?.id ?? null });
     }
 
@@ -528,7 +569,7 @@ app.post('/mcp', async (req, res) => {
 app.get('/mcp', async (req, res) => {
   const access = await resolveMcpAccess(req);
   console.log(JSON.stringify({ at: nowIso(), event: 'mcp-sse-auth', hasBearerToken: Boolean(getBearerToken(req)), authorized: access.ok, mode: access.mode || null }));
-  if (!access.ok) return res.status(access.status || 401).send(access.message || 'Unauthorized');
+  if (!access.ok) return sendOAuthChallenge(res, { scope: 'openid profile wallet_status token_balance mint_quota token_mint' });
   const sessionId = req.headers['mcp-session-id'];
   if (!sessionId || !transports[sessionId]) {
     if (mcpDevOpen) return res.status(200).send('MCP dev open ready; initialize with POST /mcp');
