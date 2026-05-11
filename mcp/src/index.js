@@ -180,6 +180,7 @@ async function createAccessToken({ clientId, backendSessionToken, backendSession
     id: randomUUID(),
     client_id: clientId,
     access_token_hash: sha256(accessToken),
+    backend_session_token: backendSessionToken,
     backend_session_token_hash: sha256(backendSessionToken),
     backend_session_id: backendSessionId,
     scope: scope || 'openid profile',
@@ -198,6 +199,18 @@ async function findAccessToken(accessToken) {
   const db = await readOauthDb();
   pruneOauthDb(db);
   return db.tokens.find((token) => token.access_token_hash === sha256(accessToken)) || null;
+}
+
+async function getOauthSessionSnapshot(accessToken) {
+  const oauthToken = await findAccessToken(accessToken);
+  if (!oauthToken) return null;
+  const backendSession = await backend(`/auth/session/${oauthToken.backend_session_id}`);
+  return {
+    oauthToken,
+    backendSession: backendSession.status >= 400 ? null : backendSession.data?.session || null,
+    walletStatus: backendSession.status >= 400 ? null : backendSession.data?.wallet_status || null,
+    chainId: backendSession.status >= 400 ? null : backendSession.data?.chainId || null,
+  };
 }
 
 function textContent(text) {
@@ -243,6 +256,43 @@ function wrapLinkedSessionResponse(upstream) {
   return upstream.data;
 }
 
+function walletAuthNeededResponse(snapshot) {
+  const authUrl = snapshot?.backendSession?.connect_url || `${frontendPublicUrl}/oauth/authorize?session=${encodeURIComponent(snapshot?.backendSession?.id || '')}`;
+  return {
+    ok: false,
+    needsWalletAuth: true,
+    message: 'Your CATSHIT connector is connected, but your wallet is not linked yet.',
+    authUrl,
+    sessionId: snapshot?.backendSession?.id || null,
+  };
+}
+
+async function runSessionTool(toolName, bearerToken, run) {
+  const snapshot = bearerToken ? await getOauthSessionSnapshot(bearerToken) : null;
+  const hasBearerToken = Boolean(bearerToken);
+  const accessTokenFound = Boolean(snapshot?.oauthToken);
+  const oauthSessionFound = Boolean(snapshot?.backendSession);
+  const walletLinked = Boolean(snapshot?.backendSession?.wallet_address);
+  const sessionToken = snapshot?.oauthToken?.backend_session_token;
+  console.log(JSON.stringify({ at: nowIso(), event: 'mcp-tool-call', toolName, hasBearerToken, accessTokenFound, oauthSessionFound, walletLinked, sessionIdUsed: snapshot?.backendSession?.id || null, walletAddress: snapshot?.backendSession?.wallet_address || null }));
+
+  if (!sessionToken) {
+    const payload = walletAuthNeededResponse(snapshot);
+    console.log(JSON.stringify({ at: nowIso(), event: 'mcp-tool-result', toolName, needsWalletAuth: true, sessionIdUsed: snapshot?.backendSession?.id || null }));
+    return { content: textContent(`${payload.message}\n${payload.authUrl}`), structuredContent: payload };
+  }
+
+  if (!walletLinked) {
+    const payload = walletAuthNeededResponse(snapshot);
+    console.log(JSON.stringify({ at: nowIso(), event: 'mcp-tool-result', toolName, needsWalletAuth: true, sessionIdUsed: snapshot?.backendSession?.id || null }));
+    return { content: textContent(`${payload.message}\n${payload.authUrl}`), structuredContent: payload };
+  }
+
+  const result = await run({ sessionToken, snapshot });
+  console.log(JSON.stringify({ at: nowIso(), event: 'mcp-tool-result', toolName, needsWalletAuth: false, sessionIdUsed: snapshot?.backendSession?.id || null, walletAddress: snapshot?.backendSession?.wallet_address || null }));
+  return result;
+}
+
 function isInitializeRequest(body) {
   return body?.method === 'initialize';
 }
@@ -280,7 +330,7 @@ async function resolveMcpAccess(req) {
   return { ok: false, status: 401, message: 'missing bearer token' };
 }
 
-function getMcpServer({ getSessionToken }) {
+function getMcpServer({ getSessionToken, getBearerTokenForTool }) {
   const server = new McpServer({ name: 'eta-ai-mint-mcp', version: '0.2.0' });
 
   server.registerTool('token_info', {
@@ -291,52 +341,59 @@ function getMcpServer({ getSessionToken }) {
     return { content: textContent(`${payload.name} (${payload.symbol}) mint price is ${payload.mintPriceEth} ETH and ${payload.remaining} public mints remain.`), structuredContent: payload };
   });
 
-  server.registerTool('wallet_status', { description: 'Get the linked wallet status for this CATSHIT connector session. If no wallet is linked yet, return the connect link.', inputSchema: {} }, async () => {
-    const upstream = await backendSessionTool('/session/wallet-status', getSessionToken());
+  server.registerTool('wallet_status', { description: 'Get the linked wallet status for this CATSHIT connector session. If no wallet is linked yet, return the connect link.', inputSchema: {} }, async () => runSessionTool('wallet_status', getBearerTokenForTool(), async ({ sessionToken, snapshot }) => {
+    const upstream = await backendSessionTool('/session/wallet-status', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
-    return { content: textContent(`Wallet ${payload.wallet}: delegated=${payload.delegated}, quota=${payload.quotaRemaining}, mints=${payload.mintsOf}, eth=${payload.ethBalanceEth}.`), structuredContent: payload };
-  });
+    const enriched = {
+      ...payload,
+      signed: ['signed', 'delegated'].includes(snapshot?.backendSession?.status || ''),
+      canMint: Boolean(payload.delegated && BigInt(payload.quotaRemaining || '0') > 0n),
+      network: snapshot?.chainId === 11155111 ? 'Sepolia' : `Chain ${snapshot?.chainId ?? 'unknown'}`,
+      chainId: snapshot?.chainId,
+    };
+    return { content: textContent(`Wallet ${enriched.wallet}: ${enriched.network}, signed=${enriched.signed}, delegated=${enriched.delegated}, quota=${enriched.quotaRemaining}, balance=${enriched.tokenBalance}.`), structuredContent: enriched };
+  }));
 
-  server.registerTool('authorization_status', { description: 'Check whether the wallet linked to this CATSHIT session is delegated to the configured MintDelegate.', inputSchema: {} }, async () => {
-    const upstream = await backendSessionTool('/session/authorization-status', getSessionToken());
+  server.registerTool('authorization_status', { description: 'Check whether the wallet linked to this CATSHIT session is delegated to the configured MintDelegate.', inputSchema: {} }, async () => runSessionTool('authorization_status', getBearerTokenForTool(), async ({ sessionToken }) => {
+    const upstream = await backendSessionTool('/session/authorization-status', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
     return { content: textContent(payload.delegated ? `${payload.wallet} is delegated to ${payload.delegateAddress}.` : `${payload.wallet} is not delegated to the configured MintDelegate.`), structuredContent: payload };
-  });
+  }));
 
-  server.registerTool('mint_quota_get', { description: 'Get the remaining mint quota for the wallet linked to this CATSHIT session.', inputSchema: {} }, async () => {
-    const upstream = await backendSessionTool('/session/mint-quota', getSessionToken());
+  server.registerTool('mint_quota_get', { description: 'Get the remaining mint quota for the wallet linked to this CATSHIT session.', inputSchema: {} }, async () => runSessionTool('mint_quota_get', getBearerTokenForTool(), async ({ sessionToken }) => {
+    const upstream = await backendSessionTool('/session/mint-quota', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
     return { content: textContent(`${payload.wallet} has ${payload.quotaRemaining} mint slots remaining.`), structuredContent: payload };
-  });
+  }));
 
-  server.registerTool('token_balance', { description: 'Get the token balance and mint count for the wallet linked to this CATSHIT session.', inputSchema: {} }, async () => {
-    const upstream = await backendSessionTool('/session/token-balance', getSessionToken());
+  server.registerTool('token_balance', { description: 'Get the token balance and mint count for the wallet linked to this CATSHIT session.', inputSchema: {} }, async () => runSessionTool('token_balance', getBearerTokenForTool(), async ({ sessionToken }) => {
+    const upstream = await backendSessionTool('/session/token-balance', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
     return { content: textContent(`${payload.wallet} holds ${payload.tokenBalance} token units and has minted ${payload.mintsOf} slot(s).`), structuredContent: payload };
-  });
+  }));
 
-  server.registerTool('token_mint', { description: 'Mint one or more slots for the wallet linked to this CATSHIT session. The receiver is always the linked wallet, never a prompt-supplied address.', inputSchema: { slots: z.number().int().min(1).optional().describe('Number of slots to mint.'), wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.') } }, async ({ wallet, slots }) => {
-    const upstream = await backendSessionTool('/session/mint', getSessionToken(), { wallet, slots: slots ?? 1 });
+  server.registerTool('token_mint', { description: 'Mint one or more slots for the wallet linked to this CATSHIT session. The receiver is always the linked wallet, never a prompt-supplied address.', inputSchema: { slots: z.number().int().min(1).optional().describe('Number of slots to mint.'), wallet: z.string().optional().describe('Ignored unless it matches the linked wallet exactly.') } }, async ({ wallet, slots }) => runSessionTool('token_mint', getBearerTokenForTool(), async ({ sessionToken }) => {
+    const upstream = await backendSessionTool('/session/mint', sessionToken, { wallet, slots: slots ?? 1 });
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
     return { content: textContent(`Mint successful for ${payload.wallet}. tx=${payload.txHash}. remaining quota=${payload.quotaRemaining}.`), structuredContent: payload };
-  });
+  }));
 
   server.registerTool('tx_status', { description: 'Get transaction status, block number, and gas used by transaction hash.', inputSchema: { hash: z.string().describe('Transaction hash.') } }, async ({ hash }) => {
     const payload = await backendStrict(`/tx-status/${hash}`);
     return { content: textContent(`Transaction ${payload.txHash} is ${payload.status} in block ${payload.blockNumber}.`), structuredContent: payload };
   });
 
-  server.registerTool('revoke_info', { description: 'Explain whether the wallet linked to this CATSHIT session is delegated and how revocation should work.', inputSchema: {} }, async () => {
-    const upstream = await backendSessionTool('/session/authorization-status', getSessionToken());
+  server.registerTool('revoke_info', { description: 'Explain whether the wallet linked to this CATSHIT session is delegated and how revocation should work.', inputSchema: {} }, async () => runSessionTool('revoke_info', getBearerTokenForTool(), async ({ sessionToken }) => {
+    const upstream = await backendSessionTool('/session/authorization-status', sessionToken);
     const payload = wrapLinkedSessionResponse(upstream);
     if (upstream.status === 428 || upstream.status === 410) return payload;
     return { content: textContent(payload.delegated ? `${payload.wallet} is currently delegated to ${payload.delegateAddress}. Revoke by sending a new EIP-7702 authorization that clears or replaces the current delegate.` : `${payload.wallet} is not currently delegated to the configured MintDelegate.`), structuredContent: payload };
-  });
+  }));
 
   return server;
 }
@@ -365,7 +422,7 @@ async function ensureTransport(sessionToken, meta = {}) {
   const server = getMcpServer({ getSessionToken: () => {
     const sid = transport.sessionId;
     return sid && transportSessionBindings[sid] ? transportSessionBindings[sid].backendSessionToken : sessionToken;
-  } });
+  }, getBearerTokenForTool: () => transport.authToken || null });
   await server.connect(transport);
   return transport;
 }
@@ -598,6 +655,7 @@ app.post('/mcp', async (req, res) => {
       transport = await ensureTransport(sessionToken, { aiClient: access.mode === 'oauth-token' ? 'claude' : 'mcp', origin: access.mode || 'mcp' });
     }
 
+    transport.authToken = getBearerToken(req);
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error('Error handling MCP request:', error);
