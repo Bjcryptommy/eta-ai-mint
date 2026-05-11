@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useAccount, useWalletClient } from 'wagmi';
 import { BrutalButton, BrutalCard, InfoBox, SectionLabel, TagBadge } from '@/components/brutal-ui';
+import { WalletConnectAction } from '@/components/WalletConnectAction';
 import { appConfig } from '@/lib/config';
 
 type SessionData = {
@@ -26,6 +28,23 @@ type SessionData = {
   message?: string;
 };
 
+declare global {
+  interface Window {
+    catshitWallet?: any;
+    ethereum?: any;
+  }
+}
+
+function getCatshitProvider(walletClient: any) {
+  if (walletClient) return walletClient;
+  if (typeof window !== 'undefined' && window.catshitWallet) return window.catshitWallet;
+  const providers = window.ethereum?.providers;
+  if (Array.isArray(providers)) {
+    return providers.find((provider: any) => provider?.isCATSHITWallet || provider?.rdns === 'com.catshit.wallet') || providers[0];
+  }
+  return window.ethereum || null;
+}
+
 export default function OauthAuthorizeClient() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session') || '';
@@ -33,6 +52,8 @@ export default function OauthAuthorizeClient() {
   const stateParam = searchParams.get('state') || '';
   const redirectUri = searchParams.get('redirect_uri') || '';
   const mcpOrigin = searchParams.get('mcp_origin') || appConfig.mcpEndpoint.replace(/\/mcp$/, '');
+  const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const [session, setSession] = useState<SessionData | null>(null);
   const [wallet, setWallet] = useState<string>('');
   const [message, setMessage] = useState<string>('');
@@ -59,33 +80,22 @@ export default function OauthAuthorizeClient() {
     loadSession().catch((err) => setError(err?.message || 'Failed to load authorization session.'));
   }, [sessionId]);
 
-  async function connectWallet() {
-    try {
-      setBusy('connect');
-      setError('');
-      const ethereum = (window as any).ethereum;
-      if (!ethereum) throw new Error('No wallet found. Open this page in a browser with CATSHIT Wallet or another EVM wallet installed.');
-      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-      if (!accounts?.[0]) throw new Error('Wallet connection was cancelled.');
-      setWallet(accounts[0]);
-    } catch (err: any) {
-      setError(err?.message || 'Wallet connection failed.');
-    } finally {
-      setBusy('');
-    }
-  }
+  useEffect(() => {
+    if (isConnected && address) setWallet(address);
+  }, [isConnected, address]);
 
   async function signIn() {
     try {
       if (!wallet) throw new Error('Connect a wallet first.');
+      const provider = getCatshitProvider(walletClient as any);
+      if (!provider) throw new Error('No wallet provider found. Use the same CATSHIT Wallet connect flow first.');
       setBusy('sign');
       setError('');
       const nonceRes = await fetch(`/api/auth/nonce?session=${encodeURIComponent(sessionId)}&wallet=${encodeURIComponent(wallet)}`, { cache: 'no-store' });
       const nonceData = await nonceRes.json();
       if (!nonceRes.ok) throw new Error(nonceData?.message || 'Failed to create sign-in message.');
       setMessage(nonceData.message);
-      const ethereum = (window as any).ethereum;
-      const signature = await ethereum.request({ method: 'personal_sign', params: [nonceData.message, wallet] });
+      const signature = await provider.request({ method: 'personal_sign', params: [nonceData.message, wallet] });
       const verifyRes = await fetch('/api/auth/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -149,7 +159,7 @@ export default function OauthAuthorizeClient() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <BrutalButton tone="mint" onClick={connectWallet} disabled={busy !== ''}>{busy === 'connect' ? 'Connecting…' : 'Connect Wallet'}</BrutalButton>
+            <WalletConnectAction tone="mint" label={isConnected ? 'wallet connected' : 'connect wallet'} />
             <BrutalButton tone="gold" onClick={signIn} disabled={!wallet || busy !== ''}>{busy === 'sign' ? 'Signing…' : 'Sign In With Wallet'}</BrutalButton>
             <BrutalButton tone="light" onClick={loadSession} disabled={busy !== ''}>Continue</BrutalButton>
             <BrutalButton tone="danger" onClick={disconnectSession} disabled={busy !== ''}>Cancel / Disconnect</BrutalButton>
@@ -177,7 +187,7 @@ export default function OauthAuthorizeClient() {
           <BrutalCard tone="black" className="space-y-4">
             <SectionLabel tone="mint">STATE</SectionLabel>
             <ul className="space-y-3 text-sm leading-7">
-              <li>1. Wallet connected: {wallet ? 'yes' : 'no'}</li>
+              <li>1. Wallet connected: {isConnected && wallet ? 'yes' : 'no'}</li>
               <li>2. Signed: {signed ? 'yes' : 'no'}</li>
               <li>3. Delegated: {delegated ? 'yes' : 'no'}</li>
               <li>4. Completed: {complete ? 'yes' : 'no'}</li>
