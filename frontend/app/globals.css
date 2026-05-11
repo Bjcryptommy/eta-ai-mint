@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #0c1222;
+  --ink-2: #10182b;
+  --ink-3: #14203a;
+  --panel: #1a2742;
+  --panel-2: #18233d;
+  --fog: #f5f7fa;
+  --fog-2: #e6edf5;
+  --light-card: #eef2f7;
+  --light-card-2: #e9eef5;
+  --mint: #37f3e2;
+  --mint-2: #29e7ff;
+  --green: #65f28d;
+  --purple: #8b5cf6;
+  --danger: #ff5d8f;
+  --proof: #baf8ec;
+  --gold: #f4c95d;
+  --shadow: 6px 6px 0 #0c1222;
+}
+
+html { scroll-behavior: smooth; }
+* { box-sizing: border-box; }
+
+body {
+  color: var(--fog);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(55, 243, 226, 0.08), transparent 24%),
+    radial-gradient(circle at 82% 16%, rgba(139, 92, 246, 0.06), transparent 18%),
+    linear-gradient(rgba(255,255,255,0.014) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.014) 1px, transparent 1px),
+    repeating-linear-gradient(-50deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 32px),
+    linear-gradient(180deg, #0c1222 0%, #10182b 52%, #0f1728 100%);
+  background-size: auto, auto, 30px 30px, 30px 30px, auto, auto;
+  font-family: var(--font-body), sans-serif;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.045;
+  background:
+    radial-gradient(circle at 10% 14%, rgba(255,255,255,0.2) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 72% 28%, rgba(255,255,255,0.16) 0 1px, transparent 1px 100%),
+    radial-gradient(circle at 50% 76%, rgba(255,255,255,0.12) 0 1px, transparent 1px 100%),
+    linear-gradient(115deg, transparent 0 48%, rgba(255,255,255,0.035) 49%, transparent 50% 100%);
+  background-size: 220px 220px, 260px 260px, 320px 320px, 420px 420px;
+}
+
+body::after {
+  content: '🐾';
+  position: fixed;
+  right: 3%;
+  bottom: 4%;
+  font-size: 22px;
+  opacity: 0.045;
+  pointer-events: none;
+  filter: blur(0.2px);
+}
+
+::selection {
+  background: var(--mint);
+  color: var(--ink);
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-fog: var(--fog);
+  --color-fog-2: var(--fog-2);
+  --color-light-card: var(--light-card);
+  --color-light-card-2: var(--light-card-2);
+  --color-mint: var(--mint);
+  --color-mint-2: var(--mint-2);
+  --color-green: var(--green);
+  --color-purple: var(--purple);
+  --color-danger: var(--danger);
+  --color-proof: var(--proof);
+  --color-gold: var(--gold);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono-ui: var(--font-mono-ui);
+}
+
+@layer base {
+  a, button { transition: all 140ms ease; }
+}
+
+@layer utilities {
+  .brutal-border { border: 3px solid var(--ink); }
+  .brutal-shadow { box-shadow: var(--shadow); }
+  .brutal-shadow-sm { box-shadow: 4px 4px 0 var(--ink); }
+  .brutal-hover { transform: translate(0, 0); }
+  .brutal-hover:hover { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--ink); }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(55,243,226,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(55,243,226,0.045) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .label-tilt { transform: rotate(-2deg); }
+  .display-text { font-family: var(--font-display), sans-serif; font-weight: 400; letter-spacing: -0.06em; text-transform: uppercase; }
+  .mono-ui { font-family: var(--font-mono-ui), monospace; }
+  .cat-divider {
+    position: relative;
+  }
+  .cat-divider::after {
+    content: '///';
+    position: absolute;
+    right: 0;
+    top: 0;
+    color: rgba(55,243,226,0.45);
+    letter-spacing: 0.2em;
+    font-size: 11px;
+    font-family: var(--font-mono-ui), monospace;
+  }
+}

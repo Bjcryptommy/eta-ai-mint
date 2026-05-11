@@ -1,0 +1,29 @@
+{
+  "name": "catshit-wallet-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:utils": "tsx src/shared/test-utils.ts"
+  },
+  "dependencies": {
+    "bip39": "^3.1.0",
+    "clsx": "^2.1.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "viem": "^2.48.4"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.322",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.10"
+  }
+}

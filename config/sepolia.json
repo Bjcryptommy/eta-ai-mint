@@ -1,0 +1,16 @@
+{
+  "chainId": 11155111,
+  "network": "sepolia",
+  "token": {
+    "address": "0x36D3f9D16263F71f21b49035049Dbef146cdd38D",
+    "name": "",
+    "symbol": ""
+  },
+  "mintDelegate": {
+    "address": "0xaeDCBCC437DAdFB597B1B3b50e268b822F8345AE"
+  },
+  "relayer": {
+    "address": ""
+  },
+  "explorer": "https://sepolia.etherscan.io"
+}

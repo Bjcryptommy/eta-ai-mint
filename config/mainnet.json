@@ -1,0 +1,16 @@
+{
+  "chainId": 1,
+  "network": "mainnet",
+  "token": {
+    "address": "",
+    "name": "",
+    "symbol": ""
+  },
+  "mintDelegate": {
+    "address": ""
+  },
+  "relayer": {
+    "address": ""
+  },
+  "explorer": "https://etherscan.io"
+}

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "eta-ai-mint": {
+      "command": "node",
+      "args": [
+        "/Users/bolajioluwatomiwa/Documents/projects/eta-ai-mint/mcp/src/stdio.js"
+      ],
+      "env": {
+        "BACKEND_URL": "http://127.0.0.1:3001",
+        "BACKEND_AUTH_TOKEN": "REPLACE_WITH_BACKEND_AUTH_TOKEN"
+      }
+    }
+  }
+}
