@@ -13,7 +13,7 @@ export default function ConnectPage() {
           <p className="text-lg font-semibold text-mint">Add CATSHIT as a Claude connector, link your wallet once, then mint by chat. 🐱</p>
           <p className="max-w-3xl text-base leading-7 text-fog/82">Claude can check your wallet, read your quota, and request mints through your approved session. Your private key is never exposed.</p>
           <div className="flex flex-wrap gap-3">
-            <BrutalButton href="https://claude.ai/settings/connectors?connectorName=CATSHIT&connectorUrl=https%3A%2F%2Fmcp.catshit.meme&modal=add-custom-connector" tone="mint">Connect to Claude</BrutalButton>
+            <BrutalButton href="https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=CATSHIT&connectorUrl=https%3A%2F%2Fmcp.catshit.meme" tone="mint">Connect to Claude</BrutalButton>
             <WalletConnectAction tone="light" label="Connect Wallet" />
           </div>
         </div>
@@ -22,10 +22,10 @@ export default function ConnectPage() {
           <BrutalCard tone="dark">
             <div className="display-text text-4xl leading-none">How it works</div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <StepCard number="01" title="Open Claude">Open Claude with the CATSHIT connector setup.</StepCard>
-              <StepCard number="02" title="Add CATSHIT" tone="dark">Confirm the connector using the pre-filled MCP URL.</StepCard>
-              <StepCard number="03" title="Approve Access" tone="dark">Link your wallet when Claude asks for access.</StepCard>
-              <StepCard number="04" title="Mint by Chat" tone="mint">Ask Claude to check quota or mint tokens.</StepCard>
+              <StepCard number="01" title="Open Claude">We copy the MCP URL and open Claude’s connector setup.</StepCard>
+              <StepCard number="02" title="Add CATSHIT" tone="dark">If the form is empty, paste the copied MCP URL and use CATSHIT as the name.</StepCard>
+              <StepCard number="03" title="Approve Access" tone="dark">Claude opens the CATSHIT approval page when wallet access is needed.</StepCard>
+              <StepCard number="04" title="Mint by Chat" tone="mint">Ask Claude to check your quota or mint tokens for your linked wallet.</StepCard>
             </div>
           </BrutalCard>
           <BrutalCard tone="dark">

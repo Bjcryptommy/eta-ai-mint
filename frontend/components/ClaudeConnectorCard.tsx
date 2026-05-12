@@ -7,7 +7,7 @@ import { BrutalButton, BrutalCard, InfoBox, SectionLabel } from './brutal-ui';
 function buildClaudeSetupUrl(mcpPublicUrl?: string) {
   if (!mcpPublicUrl) return '';
   const encoded = encodeURIComponent(mcpPublicUrl);
-  return `https://claude.ai/settings/connectors?connectorName=CATSHIT&connectorUrl=${encoded}&modal=add-custom-connector`;
+  return `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=CATSHIT&connectorUrl=${encoded}`;
 }
 
 export function ClaudeConnectorCard({ compact = false }: { compact?: boolean }) {
@@ -16,20 +16,28 @@ export function ClaudeConnectorCard({ compact = false }: { compact?: boolean }) 
   const claudeSetupUrl = useMemo(() => buildClaudeSetupUrl(mcpPublicUrl), [mcpPublicUrl]);
   const starterPrompt = 'Use CATSHIT to check my wallet status. If my wallet is not linked, give me the connect link. If linked and delegated, show my mint quota.';
 
+  function showMessage(text: string, duration = 2200) {
+    setMessage(text);
+    window.setTimeout(() => setMessage(null), duration);
+  }
+
   async function copyText(value: string, success: string) {
     try {
       await navigator.clipboard.writeText(value);
-      setMessage(success);
-      window.setTimeout(() => setMessage(null), 1800);
+      showMessage(success, 1800);
     } catch {
-      setMessage('Copy failed. Copy it manually.');
-      window.setTimeout(() => setMessage(null), 2200);
+      showMessage('Copy failed. Copy it manually.');
     }
   }
 
-  function openClaude() {
-    if (!claudeSetupUrl) return setMessage('MCP public URL is not configured.');
-    setMessage(null);
+  async function openClaude() {
+    if (!claudeSetupUrl) return showMessage('MCP public URL is not configured.');
+    try {
+      await navigator.clipboard.writeText(mcpPublicUrl);
+      showMessage('MCP URL copied. Claude is opening…', 2400);
+    } catch {
+      showMessage('If the field is empty, copy the MCP URL below and paste it into Claude.', 3200);
+    }
     window.open(claudeSetupUrl, '_blank', 'noopener,noreferrer');
   }
 
@@ -48,8 +56,16 @@ export function ClaudeConnectorCard({ compact = false }: { compact?: boolean }) 
         <BrutalButton tone="gold" onClick={() => copyText(starterPrompt, 'Starter prompt copied')}>Copy Starter Prompt</BrutalButton>
       </div>
 
+      <div className="text-xs text-fog/70">Claude may not always pre-fill the form. If it opens empty, paste the copied MCP URL.</div>
+
       <InfoBox title="MCP URL" tone={compact ? 'light' : 'black'}>
         <div className="break-all">{mcpPublicUrl}</div>
+      </InfoBox>
+
+      <InfoBox title="If Claude opens an empty form" tone={compact ? 'light' : 'dark'}>
+        <div><strong>Name:</strong> CATSHIT</div>
+        <div className="mt-2 break-all"><strong>Remote MCP server URL:</strong> {mcpPublicUrl}</div>
+        <div className="mt-2">Then click Add. Claude will open CATSHIT’s approval page when wallet access is needed.</div>
       </InfoBox>
 
       <InfoBox title="Starter prompt" tone={compact ? 'light' : 'dark'}>
@@ -58,7 +74,14 @@ export function ClaudeConnectorCard({ compact = false }: { compact?: boolean }) 
 
       {!compact ? (
         <InfoBox title="Flow" tone="dark">
-          Connect to Claude. Add CATSHIT. Approve access when Claude asks. Then ask Claude to check quota or mint.
+          1. Click Connect to Claude.<br />
+          We copy the MCP URL and open Claude’s connector setup.<br /><br />
+          2. Add CATSHIT.<br />
+          If the form is empty, paste the copied MCP URL and use CATSHIT as the name.<br /><br />
+          3. Approve Access.<br />
+          Claude opens the CATSHIT approval page when wallet access is needed.<br /><br />
+          4. Mint by Chat.<br />
+          Ask Claude to check your quota or mint tokens for your linked wallet.
         </InfoBox>
       ) : null}
 
