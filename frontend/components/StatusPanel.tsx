@@ -5,12 +5,13 @@ import { numberToHex } from 'viem';
 import { useAccount, useChainId, useDisconnect, useWalletClient } from 'wagmi';
 import { TokenInfo, WalletStatus } from '@/lib/types';
 import { appConfig } from '@/lib/config';
+import { formatCount, formatTokenAmount } from '@/lib/format';
 import { AddressPill, BrutalCard, StatusRow } from './brutal-ui';
 import { WalletConnectAction } from './WalletConnectAction';
 
 function formatMintProgress(status: WalletStatus | null, tokenInfo: TokenInfo | null) {
-  const minted = status?.mintsOf ?? '0';
-  const max = tokenInfo?.maxTotalMints ?? '21000';
+  const minted = formatCount(status?.mintsOf ?? '0');
+  const max = formatCount(tokenInfo?.maxTotalMints ?? '21000');
   return `${minted} / ${max}`;
 }
 
@@ -24,6 +25,7 @@ export function StatusPanel({ status, tokenInfo }: { status: WalletStatus | null
 
   const wrongChain = isConnected && !!activeChainId && activeChainId !== appConfig.chainId;
   const switchLabel = useMemo(() => `Switch to ${appConfig.networkName}`, []);
+  const tokenSymbol = tokenInfo?.symbol || appConfig.symbol || 'CATSHIT';
 
   async function requestChainSwitch() {
     if (!walletClient) return;
@@ -64,7 +66,7 @@ export function StatusPanel({ status, tokenInfo }: { status: WalletStatus | null
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="display-text text-4xl leading-none">Your Status</div>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/75">Connect your wallet to see whether it is linked, delegated, and ready for Claude minting.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/75">Connect your wallet to see if it is linked, delegated, and ready for Claude minting.</p>
         </div>
         <WalletConnectAction label="Connect Wallet" tone="mint" />
       </div>
@@ -72,9 +74,9 @@ export function StatusPanel({ status, tokenInfo }: { status: WalletStatus | null
         <StatusRow label="Wallet" value={status?.wallet ? <AddressPill value={status.wallet} /> : 'Connect wallet'} />
         <StatusRow label="Network" value={isConnected ? `${appConfig.networkName}${activeChainId ? ` · chainId ${activeChainId}` : ''}` : appConfig.networkName} />
         <StatusRow label="Delegation" value={status?.delegated ? 'Active' : 'Not active'} />
-        <StatusRow label="Token balance" value={status?.tokenBalance ?? '—'} />
+        <StatusRow label="Token balance" value={formatTokenAmount(status?.tokenBalance, tokenSymbol)} />
         <StatusRow label="Public mint" value={formatMintProgress(status, tokenInfo)} />
-        <StatusRow label="Remaining quota" value={status?.quotaRemaining ?? '—'} />
+        <StatusRow label="Remaining quota" value={formatCount(status?.quotaRemaining)} />
       </div>
       {wrongChain ? (
         <div className="mt-5 rounded-[18px] border-[3px] border-ink bg-mint p-4 text-sm font-bold text-ink">
@@ -87,7 +89,7 @@ export function StatusPanel({ status, tokenInfo }: { status: WalletStatus | null
         </div>
       ) : null}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t-[3px] border-mint pt-4 text-sm font-semibold text-ink/80">
-        <div>{isConnected ? 'Your connected wallet status appears here after Claude finishes approval.' : 'Connect your wallet to inspect status.'}</div>
+        <div>{isConnected ? 'Status updates here after Claude approval.' : 'Connect your wallet to inspect status.'}</div>
         {isConnected ? <button className="rounded-xl border-[3px] border-ink bg-light-card px-4 py-2 text-xs uppercase tracking-[0.18em] text-ink" onClick={() => disconnect()}>Disconnect Wallet</button> : null}
       </div>
     </BrutalCard>

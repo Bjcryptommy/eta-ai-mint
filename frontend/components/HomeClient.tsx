@@ -58,7 +58,7 @@ export function HomeClient({ initialTokenInfo }: { initialTokenInfo: TokenInfo |
             </div>
             <div className="display-text text-4xl leading-none">Dark Cat Alley.<br />Organized Chaos.</div>
             <InfoBox title="cat terminal" tone="light">&gt; wallet detected<br />&gt; Claude connector ready<br />&gt; MCP route armed</InfoBox>
-            <InfoBox title="launch lane" tone="mint">Wallet and site logic now use the configured chain environment. No hardcoded fallback chain.</InfoBox>
+            <InfoBox title="launch lane" tone="mint">Configured for the active chain. No fallback chain surprises.</InfoBox>
           </BrutalCard>
         </div>
       </section>

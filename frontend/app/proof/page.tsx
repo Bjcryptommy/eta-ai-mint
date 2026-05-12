@@ -1,17 +1,13 @@
 import { SiteShell } from '@/components/SiteShell';
 import { BrutalCard, ContractRow, ProofCard, SectionLabel, TagBadge } from '@/components/brutal-ui';
 import { appConfig } from '@/lib/config';
+import { formatCount, formatTokenAmount } from '@/lib/format';
 import { getServerTokenInfo } from '@/lib/server-api';
-
-function formatNumber(value?: string | number | null) {
-  if (value === null || value === undefined || value === '') return 'Coming soon';
-  const num = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(num) ? num.toLocaleString() : String(value);
-}
 
 export default async function ProofPage() {
   const tokenInfo = await getServerTokenInfo();
   const mcpUrl = appConfig.mcpPublicUrl || 'https://mcp.catshit.meme';
+  const symbol = tokenInfo?.symbol || appConfig.symbol || 'CATSHIT';
 
   return (
     <SiteShell>
@@ -23,14 +19,14 @@ export default async function ProofPage() {
         </div>
         <div className="grid gap-5 md:grid-cols-3">
           <ProofCard title="EIP-7702" badge="LIVE">Users sign one authorization. Their wallet delegates to the MintDelegate.</ProofCard>
-          <ProofCard title="Fair Launch" badge="OPEN">No presale. Mint proceeds support the launch pool. LP is locked after launch.</ProofCard>
+          <ProofCard title="Fair Launch" badge="OPEN">No presale. Mint proceeds support the launch pool.</ProofCard>
           <ProofCard title="AI Agent" badge="MCP">Claude can request mints through MCP. The contract still enforces recipient, quota, and mint rules.</ProofCard>
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr,0.9fr]">
           <BrutalCard tone="light" className="text-ink">
             <div className="cat-divider inline-block pr-10"><SectionLabel tone="purple">Core Contracts</SectionLabel></div>
             <div className="mt-4 display-text text-4xl leading-none">Core Contracts</div>
-            <p className="mt-4 text-sm leading-7 text-ink/75">These are the live contracts used by CATSHIT on Sepolia.</p>
+            <p className="mt-4 text-sm leading-7 text-ink/85">These are the live contracts used by CATSHIT on Sepolia.</p>
             <div className="mt-5">
               <ContractRow label="Token" value={tokenInfo?.tokenAddress || 'Coming soon'} href={tokenInfo?.tokenAddress ? `${appConfig.explorerBase}/address/${tokenInfo.tokenAddress}` : undefined} />
               <ContractRow label="MintDelegate" value={tokenInfo?.delegateAddress || 'Coming soon'} href={tokenInfo?.delegateAddress ? `${appConfig.explorerBase}/address/${tokenInfo.delegateAddress}` : undefined} />
@@ -53,7 +49,7 @@ export default async function ProofPage() {
         <div className="grid gap-5 lg:grid-cols-2">
           <BrutalCard tone="proof">
             <div className="display-text text-4xl leading-none">LP Lock</div>
-            <p className="mt-4 text-sm leading-7 text-ink/80">LP lock data will appear here after final launch deployment.</p>
+            <p className="mt-4 text-sm leading-7 text-ink/80">LP lock data will appear after final launch deployment.</p>
             <div className="mt-5 space-y-3 text-sm leading-7">
               <div><strong>Lock ID:</strong> Coming soon</div>
               <div><strong>Status:</strong> Coming soon</div>
@@ -68,13 +64,13 @@ export default async function ProofPage() {
               <div className="display-text text-4xl leading-none">Public Mint</div>
               <TagBadge tone="mint">OPEN</TagBadge>
             </div>
-            <div className="mt-5 space-y-3 text-sm leading-7 text-ink/85">
-              <div><strong>Mint pool:</strong> {formatNumber(tokenInfo?.remaining)} remaining</div>
-              <div><strong>Per-wallet cap:</strong> {formatNumber(tokenInfo?.maxPerWallet)}</div>
+            <div className="mt-5 space-y-3 text-sm leading-7 text-ink/90">
+              <div><strong>Mint pool:</strong> {formatCount(tokenInfo?.remaining)} remaining</div>
+              <div><strong>Per-wallet cap:</strong> {formatCount(tokenInfo?.maxPerWallet)}</div>
               <div><strong>Mint price:</strong> {tokenInfo?.mintPriceEth || 'Coming soon'}</div>
-              <div><strong>Public supply minted:</strong> {formatNumber(tokenInfo?.totalMints)}</div>
-              <div><strong>Max supply:</strong> {formatNumber(tokenInfo?.maxTotalMints)}</div>
-              <div><strong>$CATSHIT per mint:</strong> {tokenInfo?.mintAmount || 'Coming soon'}</div>
+              <div><strong>Public supply minted:</strong> {formatCount(tokenInfo?.totalMints)}</div>
+              <div><strong>Max supply:</strong> {formatCount(tokenInfo?.maxTotalMints)}</div>
+              <div><strong>{symbol} per mint:</strong> {formatTokenAmount(tokenInfo?.mintAmount, symbol)}</div>
             </div>
           </BrutalCard>
         </div>
@@ -89,7 +85,7 @@ export default async function ProofPage() {
         </BrutalCard>
         <BrutalCard tone="black">
           <div className="display-text text-4xl leading-none text-fog">Verify Yourself</div>
-          <p className="mt-4 text-sm leading-7 text-fog/84">You can verify the contracts, connector endpoint, and transaction history yourself. Final BscScan/Etherscan links and LP lock links will appear here as deployment data is finalized.</p>
+          <p className="mt-4 text-sm leading-7 text-fog/84">Verify contracts, connector endpoint, and transaction history yourself. Final explorer and LP lock links will appear here when deployment data is finalized.</p>
         </BrutalCard>
       </div>
     </SiteShell>

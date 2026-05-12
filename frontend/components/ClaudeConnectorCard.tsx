@@ -38,7 +38,7 @@ export function ClaudeConnectorCard({ compact = false }: { compact?: boolean }) 
       <div className="space-y-3">
         <SectionLabel tone="mint">Claude Connector</SectionLabel>
         <div className="display-text text-4xl leading-none">Add CATSHIT to Claude</div>
-        <p className="text-sm leading-7 opacity-85">Open Claude with the CATSHIT connector pre-filled. Add the connector, approve access, and Claude can use CATSHIT tools for your linked wallet.</p>
+        <p className="text-sm leading-7 opacity-85">Open Claude with CATSHIT pre-filled. Add the connector, approve access, and Claude can use CATSHIT tools for your linked wallet.</p>
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -50,23 +50,17 @@ export function ClaudeConnectorCard({ compact = false }: { compact?: boolean }) 
 
       <InfoBox title="MCP URL" tone={compact ? 'light' : 'black'}>
         <div className="break-all">{mcpPublicUrl}</div>
-        <div className="mt-2 text-xs opacity-80">Use this URL if you want to add CATSHIT manually inside Claude.</div>
       </InfoBox>
 
       <InfoBox title="Starter prompt" tone={compact ? 'light' : 'dark'}>
         <div className="break-words">{starterPrompt}</div>
       </InfoBox>
 
-      <InfoBox title="Flow" tone={compact ? 'light' : 'dark'}>
-        1. Click Connect to Claude.<br />
-        Opens Claude with CATSHIT pre-filled as a custom connector.<br /><br />
-        2. Add the connector.<br />
-        Confirm CATSHIT inside Claude settings.<br /><br />
-        3. Approve access.<br />
-        Claude opens the CATSHIT approval page when wallet access is needed.<br /><br />
-        4. Mint from Claude.<br />
-        Ask Claude to check your quota or mint tokens for your linked wallet.
-      </InfoBox>
+      {!compact ? (
+        <InfoBox title="Flow" tone="dark">
+          Connect to Claude. Add CATSHIT. Approve access when Claude asks. Then ask Claude to check quota or mint.
+        </InfoBox>
+      ) : null}
 
       {message ? <div className="rounded-2xl border-[3px] border-mint bg-mint/15 px-4 py-3 text-sm font-semibold">{message}</div> : null}
     </BrutalCard>
